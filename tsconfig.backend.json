@@ -1,0 +1,1 @@
+{ "compilerOptions": { "target":"ES2022", "module":"NodeNext", "moduleResolution":"NodeNext", "rootDir":"backend/src", "strict":true, "esModuleInterop":true, "skipLibCheck":true, "outDir":"dist-backend" }, "include":["backend/src/**/*.ts"] }

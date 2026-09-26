@@ -1,0 +1,35 @@
+# Vastraa Wholesale API handoff
+
+The backend lives in `backend/`, uses Express + Prisma/PostgreSQL, and is independent of the existing Vite frontend.
+
+## Start locally
+
+1. Copy `.env.example` to `.env` and start Postgres with `docker compose -f docker-compose.dev.yml up -d`.
+2. Run `npx prisma migrate dev --name init`, `npx prisma db seed`, then `npm run api`.
+3. The seeded owner is `admin@vastraa.demo` / `ChangeMe123!`; change the password outside demo use.
+
+## API conventions
+
+All authenticated endpoints are under `/api/v1` and use the HTTP-only `vw_session` cookie returned by `POST /auth/login`. Successful payloads are `{ data, meta? }`; errors are `{ error: { code, message } }`. Collection routes accept `page`, `limit`, and generally `q`.
+
+| Area | Routes |
+|---|---|
+| Health | `GET /api/health` |
+| Auth | `POST /api/v1/auth/login`, `POST /logout`, `GET /me` |
+| Categories | `GET, POST /api/v1/categories` |
+| Attributes | `GET, POST /api/v1/attributes` |
+| Customers | `GET, POST /api/v1/customers`; `GET, PATCH /api/v1/customers/:id` |
+| Products | `GET, POST /api/v1/products`; `GET, PATCH /api/v1/products/:id` |
+| Inventory | `POST /api/v1/inventory/movements` |
+| Collections | `GET, POST /api/v1/collections` |
+| Catalogues | `GET, POST /api/v1/catalogues`; `POST /:id/disable` |
+| Enquiries | `GET /api/v1/enquiries`; `PATCH /:id/status` |
+| Public catalogues | `GET /api/v1/public/catalogues/:token`; `POST /:token/enquiries` |
+
+Product creation takes `categoryId`, `code`, `name`, `description`, `basePrice`, `moq`, `attributeIds`, and non-empty `variants` (`sku`, `price`, `stock`, `attributeValueIds`). Inventory movements take `variantId`, a movement `type`, positive integer `quantity`, `reason`, and optional `reference`.
+
+Tenant scope is always derived from the session's user; clients never provide a trusted business ID. Public catalogue DTOs omit price/stock/MOQ based on catalogue settings and never return customer notes, cost data, or inventory history. Enquiry items persist SKU, attributes, and price snapshots.
+
+## Security notes
+
+Helmet, CORS allowlisting, 1 MB JSON limit, Zod validation, login rate limiting, Argon2id password hashes, opaque hashed server-side sessions, role gates, and scoped queries are implemented. Production requires HTTPS, a restrictive `CORS_ORIGIN`, and managed object storage before enabling uploads.

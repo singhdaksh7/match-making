@@ -1,0 +1,9 @@
+node_modules
+dist
+dist-backend
+playwright-report
+test-results
+.test-uploads
+docker-build.log
+docker-build.err.log
+.git

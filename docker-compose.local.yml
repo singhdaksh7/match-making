@@ -1,0 +1,63 @@
+# Production-like local verification stack. Unlike docker-compose.yml it does
+# not need the VPS's external Traefik network and never publishes PostgreSQL.
+services:
+  vastraa-db:
+    image: postgres:16-alpine
+    container_name: vastraa-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vastraa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replace-with-a-long-random-password}
+      POSTGRES_DB: ${POSTGRES_DB:-vastraa}
+    volumes:
+      - vastraa_local_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vastraa} -d ${POSTGRES_DB:-vastraa}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [vastraa-local]
+
+  vastraa-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: vastraa-api
+    depends_on:
+      vastraa-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vastraa}:${POSTGRES_PASSWORD:-replace-with-a-long-random-password}@vastraa-db:5432/${POSTGRES_DB:-vastraa}
+      CORS_ORIGIN: http://127.0.0.1:8088
+      COOKIE_SECURE: "false"
+      UPLOAD_PROVIDER: local
+      UPLOAD_DIR: /app/uploads
+      UPLOAD_MAX_BYTES: 5242880
+      # Local verification stack only — raised so repeated automated Playwright/manual
+      # login runs during release testing don't trip the limiter. Production compose
+      # (docker-compose.yml) does not set this, so it keeps the strict default of 10.
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-100}
+    volumes:
+      - vastraa_local_media:/app/uploads
+    networks: [vastraa-local]
+
+  vastraa-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vastraa-web
+    depends_on: [vastraa-api]
+    ports:
+      - "127.0.0.1:8088:8080"
+    volumes:
+      - ./nginx.local.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [vastraa-local]
+
+networks:
+  vastraa-local:
+    name: vastraa-local
+
+volumes:
+  vastraa_local_db_data:
+  vastraa_local_media:

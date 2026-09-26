@@ -1,0 +1,24 @@
+# Local development helper: brings up only Postgres, exposed on localhost so
+# `npm run dev` (frontend) and `npm run dev` (server, via tsx) can run
+# natively with hot reload. Not used in production — see docker-compose.yml.
+services:
+  vastraa-db-dev:
+    image: postgres:16-alpine
+    container_name: vastraa-db-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vastraa
+      POSTGRES_PASSWORD: vastraa
+      POSTGRES_DB: vastraa_dev
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - vastraa_db_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vastraa -d vastraa_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  vastraa_db_dev_data:

@@ -102,14 +102,10 @@ function CatalogueContent({ catalogue, slug, query, setQuery, category, setCateg
           <p className="text-lg font-semibold">{customerName(data, catalogue.customerId)}</p>
           <p className="mt-1 text-sm text-stone-300">{catalogue.name}</p>
           {catalogue.message && <p className="mx-auto mt-3 max-w-md text-sm text-stone-200">{catalogue.message}</p>}
-          <div className="mt-4 flex justify-center gap-4 text-xs text-stone-300">
-            <span>{products.length} Designs</span>
-            <span>·</span>
-            <span>{products.reduce((count: number, p: any) => count + catalogueProductVariants(data, catalogue, p).length, 0)} Variants</span>
-            <span>·</span>
-            <span>Ready Stock</span>
-            <span>·</span>
-            <span>Wholesale Collection</span>
+          <div className="mt-3.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-stone-300">
+            <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-medium">{products.length} Designs</span>
+            <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-medium">{products.reduce((count: number, p: any) => count + catalogueProductVariants(data, catalogue, p).length, 0)} Variants</span>
+            <span className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 font-semibold text-emerald-300">Ready Stock</span>
           </div>
         </div>
         <div className="border-t border-white/10 bg-stone-900/95 px-4 py-3">

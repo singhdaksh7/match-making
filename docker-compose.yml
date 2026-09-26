@@ -1,0 +1,95 @@
+# Production compose file. Attaches to the VPS's existing external Traefik
+# network instead of publishing ports 80/443 itself — see DEPLOYMENT.md.
+#
+# Before first deploy, confirm on the actual VPS:
+#   - the external Traefik docker network name (TRAEFIK_NETWORK below assumes "traefik")
+#   - the certificate resolver name Traefik is configured with (CERT_RESOLVER)
+#   - the entrypoint name for websecure (usually "websecure")
+# Do not deploy with the placeholder values unverified.
+
+services:
+  vastraa-db:
+    image: postgres:16-alpine
+    container_name: vastraa-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vastraa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-vastraa}
+    volumes:
+      - vastraa_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vastraa} -d ${POSTGRES_DB:-vastraa}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  vastraa-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: vastraa-api
+    restart: unless-stopped
+    depends_on:
+      vastraa-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vastraa}:${POSTGRES_PASSWORD}@vastraa-db:5432/${POSTGRES_DB:-vastraa}
+      CORS_ORIGIN: https://${APP_HOST}
+      SESSION_DAYS: ${SESSION_DAYS:-7}
+      UPLOAD_PROVIDER: ${UPLOAD_PROVIDER:-local}
+      UPLOAD_DIR: /app/uploads
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-5242880}
+    volumes:
+      - vastraa_media:/app/uploads
+    networks:
+      - internal
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:-traefik}
+      # Path-prefix routed on the same host as the frontend, higher priority
+      # so it's matched before the frontend's catch-all router.
+      - traefik.http.routers.vastraa-api.rule=Host(`${APP_HOST}`) && PathPrefix(`/api`)
+      - traefik.http.routers.vastraa-api.entrypoints=websecure
+      - traefik.http.routers.vastraa-api.tls=true
+      - traefik.http.routers.vastraa-api.tls.certresolver=${CERT_RESOLVER:-letsencrypt}
+      - traefik.http.routers.vastraa-api.priority=100
+      - traefik.http.services.vastraa-api.loadbalancer.server.port=4000
+
+  vastraa-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    container_name: vastraa-web
+    restart: unless-stopped
+    depends_on:
+      - vastraa-api
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:-traefik}
+      - traefik.http.routers.vastraa-web.rule=Host(`${APP_HOST}`)
+      - traefik.http.routers.vastraa-web.entrypoints=websecure
+      - traefik.http.routers.vastraa-web.tls=true
+      - traefik.http.routers.vastraa-web.tls.certresolver=${CERT_RESOLVER:-letsencrypt}
+      - traefik.http.routers.vastraa-web.priority=1
+      - traefik.http.services.vastraa-web.loadbalancer.server.port=8080
+
+networks:
+  internal:
+    driver: bridge
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}
+
+volumes:
+  vastraa_db_data:
+  vastraa_media:

@@ -9,8 +9,22 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-backend
 dist-ssr
 *.local
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Backend uploads & local artifacts
+server/uploads
+server/coverage
+test-results
+playwright-report
+db_backups
+*.pgdump
 
 # Editor directories and files
 .vscode/*

@@ -10,6 +10,7 @@ import { ATTRIBUTES } from '@/data/attributes'
 import type { Product, ProductMedia, ProductVariant } from '@/types'
 import { formatINR } from '@/utils/format'
 import { primaryImage } from '@/utils/selectors'
+import { apiClient } from '@/services/api/client'
 
 const VARIANT_DIM_ATTRS = ['attr-fabric', 'attr-color', 'attr-size', 'attr-waist']
 const STEPS = ['Basic Info', 'Media', 'Attributes', 'Variants', 'Pricing & MOQ', 'Review']
@@ -95,22 +96,18 @@ export default function ProductFormPage() {
     showToast(`${combos.length} variants generated`)
   }
 
-  function handleImageUpload(files: FileList | null) {
+  async function handleImageUpload(files: FileList | null) {
     if (!files) return
-    const readers = Array.from(files).map(
-      (file) =>
-        new Promise<string>((resolve) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result as string)
-          reader.readAsDataURL(file)
-        }),
-    )
-    Promise.all(readers).then((urls) => {
+    try {
+      const uploaded = await Promise.all(Array.from(files).map(async (file) => {
+        const form = new FormData(); form.append('file', file)
+        return apiClient.post<{ objectKey: string; url: string; mimeType: string }>('/api/v1/media', form)
+      }))
       setMedia((prev) => [
         ...prev,
-        ...urls.map((url, i) => ({ id: `media-${Date.now()}-${i}`, url, isPrimary: prev.length === 0 && i === 0 })),
+        ...uploaded.map((item, i) => ({ id: item.objectKey, url: item.url, objectKey: item.objectKey, mimeType: item.mimeType, isPrimary: prev.length === 0 && i === 0 } as ProductMedia)),
       ])
-    })
+    } catch { showToast('Image upload failed. Please retry.', 'error') }
   }
 
   function canProceed() {
@@ -120,7 +117,7 @@ export default function ProductFormPage() {
     return true
   }
 
-  function handleSave() {
+  async function handleSave() {
     const productId = existing?.id ?? `prod-${Date.now()}`
     const attributeIds = categoryAttributes.map((a) => a.id)
     const product: Product = {
@@ -157,8 +154,10 @@ export default function ProductFormPage() {
           status: 'active',
           lowStockThreshold: 10,
         }))
-      addProduct(product, variants)
+      const createdId = await addProduct(product, variants)
       showToast('Product created successfully')
+      navigate(`/products/${createdId}`)
+      return
     }
     navigate(`/products/${productId}`)
   }
@@ -329,13 +328,13 @@ export default function ProductFormPage() {
         {step === 4 && (
           <div className="space-y-4">
             <Field label="Wholesale Price (₹)">
-              <input type="number" value={wholesalePrice} onChange={(e) => setWholesalePrice(Number(e.target.value))} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />
+              <input type="number" inputMode="decimal" value={wholesalePrice} onChange={(e) => setWholesalePrice(Number(e.target.value))} className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
             </Field>
             <Field label="Compare Price (₹, optional)">
-              <input type="number" value={comparePrice} onChange={(e) => setComparePrice(Number(e.target.value))} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />
+              <input type="number" inputMode="decimal" value={comparePrice} onChange={(e) => setComparePrice(Number(e.target.value))} className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
             </Field>
             <Field label="MOQ (Minimum Order Quantity)">
-              <input type="number" value={moq} onChange={(e) => setMoq(Number(e.target.value))} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />
+              <input type="number" inputMode="numeric" value={moq} onChange={(e) => setMoq(Number(e.target.value))} className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
             </Field>
           </div>
         )}

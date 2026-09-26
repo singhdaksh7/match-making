@@ -1,0 +1,24 @@
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY prisma ./prisma
+RUN npx prisma generate
+COPY backend ./backend
+COPY tsconfig.backend.json ./
+RUN npm run backend:build
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+RUN addgroup -S vastraa && adduser -S vastraa -G vastraa
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=build /app/dist-backend ./dist-backend
+COPY prisma ./prisma
+RUN mkdir -p /app/uploads && chown -R vastraa:vastraa /app
+USER vastraa
+EXPOSE 4000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD node -e "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist-backend/server.js"]

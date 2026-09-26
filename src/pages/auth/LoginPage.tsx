@@ -14,16 +14,14 @@ export function LoginPage() {
 
   if (user) return <Navigate to="/dashboard" replace />
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
-    setTimeout(() => {
-      const result = login(email, password)
-      setLoading(false)
-      if (result.success) navigate('/dashboard')
-      else setError(result.error ?? 'Login failed')
-    }, 400)
+    const result = await login(email, password)
+    setLoading(false)
+    if (result.success) navigate('/dashboard')
+    else setError(result.error ?? 'Login failed')
   }
 
   return (

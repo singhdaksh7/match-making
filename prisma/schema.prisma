@@ -1,0 +1,379 @@
+generator client {
+provider = "prisma-client-js"
+}
+datasource db {
+provider = "postgresql"
+ url = env("DATABASE_URL")
+}
+
+enum Role {
+OWNER
+ADMIN
+STAFF
+SALES
+INVENTORY_MANAGER
+}
+enum RecordStatus {
+ACTIVE
+INACTIVE
+DRAFT
+ARCHIVED
+DISABLED
+EXPIRED
+}
+enum AttributeKind {
+COLOR
+TEXT
+SIZE
+SELECT
+}
+enum MovementType {
+PRODUCTION
+SALE
+ADJUSTMENT
+DAMAGE
+RETURN
+RESERVATION
+RELEASE
+}
+enum CustomerType {
+WHOLESALER
+RETAILER
+DISTRIBUTOR
+RESELLER
+}
+enum EnquiryStatus {
+NEW
+CONTACTED
+NEGOTIATING
+CONVERTED
+CLOSED
+}
+enum EventType {
+CATALOGUE_VIEWED
+PRODUCT_VIEWED
+PRODUCT_SELECTED
+ENQUIRY_SUBMITTED
+}
+
+model Business {
+  id String @id @default(cuid())
+  name String
+  slug String @unique
+  users User[]
+ categories Category[]
+ attributes Attribute[]
+ products Product[]
+ customers Customer[]
+ collections Collection[]
+ catalogues Catalogue[]
+ enquiries Enquiry[]
+ auditLogs AuditLog[]
+ events AnalyticsEvent[]
+  createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model User {
+  id String @id @default(cuid())
+ businessId String
+ business Business @relation(fields:[businessId], references:[id], onDelete: Cascade)
+  name String
+ email String
+ passwordHash String
+ role Role @default(STAFF)
+ active Boolean @default(true)
+ sessions Session[]
+ movements InventoryMovement[]
+ audits AuditLog[]
+  createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+  @@unique([businessId,email])
+ @@index([businessId])
+}
+model Session {
+id String @id @default(cuid())
+ userId String
+ user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+ tokenHash String @unique
+ expiresAt DateTime
+ createdAt DateTime @default(now())
+ @@index([userId,expiresAt])
+}
+model Category {
+id String @id @default(cuid())
+ businessId String
+ business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
+ name String
+ slug String
+ status RecordStatus @default(ACTIVE)
+ categoryAttributes CategoryAttribute[]
+ products Product[]
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([businessId,slug])
+ @@index([businessId])
+}
+model Attribute {
+id String @id @default(cuid())
+ businessId String
+ business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
+ name String
+ kind AttributeKind
+ values AttributeValue[]
+ categories CategoryAttribute[]
+ productAttributes ProductAttribute[]
+ createdAt DateTime @default(now())
+ @@unique([businessId,name])
+ @@index([businessId])
+}
+model AttributeValue {
+id String @id @default(cuid())
+ attributeId String
+ attribute Attribute @relation(fields:[attributeId],references:[id],onDelete:Cascade)
+ value String
+ hex String?
+ variantValues VariantAttributeValue[]
+ @@unique([attributeId,value])
+}
+model CategoryAttribute {
+categoryId String
+ attributeId String
+ category Category @relation(fields:[categoryId],references:[id],onDelete:Cascade)
+ attribute Attribute @relation(fields:[attributeId],references:[id],onDelete:Cascade)
+ required Boolean @default(false)
+ @@id([categoryId,attributeId])
+}
+model Product {
+id String @id @default(cuid())
+ businessId String
+ business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
+ categoryId String
+ category Category @relation(fields:[categoryId],references:[id])
+ code String
+ name String
+ description String @default("")
+ basePrice Decimal @db.Decimal(12,2)
+ moq Int @default(1)
+ status RecordStatus @default(ACTIVE)
+ media ProductMedia[]
+ attributes ProductAttribute[]
+ variants ProductVariant[]
+ collections CollectionProduct[]
+ catalogueItems CatalogueItem[]
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([businessId,code])
+ @@index([businessId,status,createdAt])
+ @@index([businessId,code])
+}
+model ProductAttribute {
+productId String
+ attributeId String
+ product Product @relation(fields:[productId],references:[id],onDelete:Cascade)
+ attribute Attribute @relation(fields:[attributeId],references:[id])
+ @@id([productId,attributeId])
+}
+model ProductMedia {
+id String @id @default(cuid())
+ productId String
+ product Product @relation(fields:[productId],references:[id],onDelete:Cascade)
+ objectKey String
+ url String
+ mimeType String
+ primary Boolean @default(false)
+ sortOrder Int @default(0)
+ createdAt DateTime @default(now())
+}
+model ProductVariant {
+id String @id @default(cuid())
+ productId String
+ product Product @relation(fields:[productId],references:[id],onDelete:Cascade)
+ sku String
+ price Decimal @db.Decimal(12,2)
+ stock Int @default(0)
+ reserved Int @default(0)
+ status RecordStatus @default(ACTIVE)
+ lowStockThreshold Int @default(10)
+ attributeValues VariantAttributeValue[]
+ media VariantMedia[]
+ movements InventoryMovement[]
+ catalogueItems CatalogueItem[]
+ enquiryItems EnquiryItem[]
+ @@unique([productId,sku])
+ @@index([sku])
+ @@index([productId,status])
+}
+model VariantAttributeValue {
+variantId String
+ attributeValueId String
+ variant ProductVariant @relation(fields:[variantId],references:[id],onDelete:Cascade)
+ attributeValue AttributeValue @relation(fields:[attributeValueId],references:[id])
+ @@id([variantId,attributeValueId])
+}
+model VariantMedia {
+id String @id @default(cuid())
+ variantId String
+ variant ProductVariant @relation(fields:[variantId],references:[id],onDelete:Cascade)
+ objectKey String
+ url String
+ mimeType String
+ sortOrder Int @default(0)
+}
+model InventoryMovement {
+id String @id @default(cuid())
+ variantId String
+ variant ProductVariant @relation(fields:[variantId],references:[id],onDelete:Restrict)
+ type MovementType
+ quantity Int
+ reason String
+ reference String?
+ createdById String
+ createdBy User @relation(fields:[createdById],references:[id])
+ createdAt DateTime @default(now())
+ @@index([variantId,createdAt])
+}
+model Customer {
+id String @id @default(cuid())
+ businessId String
+ business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
+ businessName String
+ contactPerson String
+ phone String
+ whatsapp String?
+ email String?
+ city String?
+ state String?
+ type CustomerType
+ gstNumber String?
+ notes String?
+ status RecordStatus @default(ACTIVE)
+ catalogues Catalogue[]
+ enquiries Enquiry[]
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([businessId,businessName])
+ @@index([businessId,status])
+}
+model Collection {
+id String @id @default(cuid())
+ businessId String
+ business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
+ name String
+ description String @default("")
+ status RecordStatus @default(ACTIVE)
+ products CollectionProduct[]
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([businessId,name])
+}
+model CollectionProduct {
+collectionId String
+ productId String
+ collection Collection @relation(fields:[collectionId],references:[id],onDelete:Cascade)
+ product Product @relation(fields:[productId],references:[id],onDelete:Cascade)
+ @@id([collectionId,productId])
+}
+model Catalogue {
+id String @id @default(cuid())
+ businessId String
+ business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
+ customerId String?
+ customer Customer? @relation(fields:[customerId],references:[id])
+ title String
+ message String?
+ token String @unique
+ pinHash String?
+ expiresAt DateTime?
+ status RecordStatus @default(DRAFT)
+ showPrice Boolean @default(true)
+ showExactStock Boolean @default(false)
+ showAvailability Boolean @default(true)
+ showMOQ Boolean @default(true)
+ allowSelection Boolean @default(true)
+ allowEnquiry Boolean @default(true)
+ allowImageDownload Boolean @default(false)
+ priceAdjustmentPct Decimal @default(0) @db.Decimal(6,2)
+ items CatalogueItem[]
+ enquiries Enquiry[]
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([businessId,status,createdAt])
+ @@index([token])
+}
+model CatalogueItem {
+id String @id @default(cuid())
+ catalogueId String
+ productId String
+ variantId String?
+ catalogue Catalogue @relation(fields:[catalogueId],references:[id],onDelete:Cascade)
+ product Product @relation(fields:[productId],references:[id],onDelete:Cascade)
+ variant ProductVariant? @relation(fields:[variantId],references:[id],onDelete:Cascade)
+ customPrice Decimal? @db.Decimal(12,2)
+ @@unique([catalogueId,productId,variantId])
+}
+model Enquiry {
+id String @id @default(cuid())
+ businessId String
+ business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
+ catalogueId String?
+ catalogue Catalogue? @relation(fields:[catalogueId],references:[id])
+ customerId String?
+ customer Customer? @relation(fields:[customerId],references:[id])
+ reference String
+ status EnquiryStatus @default(NEW)
+ contactName String
+ phone String
+ message String?
+ items EnquiryItem[]
+ history EnquiryStatusHistory[]
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([businessId,reference])
+ @@index([businessId,status,createdAt])
+}
+model EnquiryItem {
+id String @id @default(cuid())
+ enquiryId String
+ enquiry Enquiry @relation(fields:[enquiryId],references:[id],onDelete:Cascade)
+ productId String?
+ variantId String?
+ variant ProductVariant? @relation(fields:[variantId],references:[id])
+ skuSnapshot String
+ attributesSnapshot Json
+ quantity Int
+ priceSnapshot Decimal @db.Decimal(12,2)
+}
+model EnquiryStatusHistory {
+id String @id @default(cuid())
+ enquiryId String
+ enquiry Enquiry @relation(fields:[enquiryId],references:[id],onDelete:Cascade)
+ status EnquiryStatus
+ note String?
+ createdAt DateTime @default(now())
+}
+model AnalyticsEvent {
+id String @id @default(cuid())
+ businessId String
+ business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
+ type EventType
+ catalogueId String?
+ productId String?
+ metadata Json?
+ createdAt DateTime @default(now())
+ @@index([businessId,type,createdAt])
+}
+model AuditLog {
+id String @id @default(cuid())
+ businessId String
+ business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
+ actorId String?
+ actor User? @relation(fields:[actorId],references:[id])
+ action String
+ entity String
+ entityId String
+ metadata Json?
+ createdAt DateTime @default(now())
+ @@index([businessId,createdAt])
+}
+
+

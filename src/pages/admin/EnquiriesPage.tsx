@@ -44,33 +44,60 @@ export default function EnquiriesPage() {
       {filtered.length === 0 ? (
         <EmptyState icon={MessageSquare} title="No enquiries found" />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-stone-100 bg-stone-50/60 text-left text-xs font-semibold uppercase tracking-wide text-stone-400">
-                <th className="px-4 py-3">Enquiry</th>
-                <th className="px-4 py-3">Customer</th>
-                <th className="px-4 py-3">Products</th>
-                <th className="px-4 py-3">Estimated Value</th>
-                <th className="px-4 py-3">Created</th>
-                <th className="px-4 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((e) => (
-                <tr key={e.id} className="border-b border-stone-50 last:border-0 hover:bg-stone-50/60">
-                  <td className="px-4 py-3">
-                    <Link to={`/enquiries/${e.id}`} className="font-mono text-xs font-semibold text-stone-700">{e.refNumber}</Link>
-                  </td>
-                  <td className="px-4 py-3 font-medium text-stone-800">{e.businessName}</td>
-                  <td className="px-4 py-3 text-stone-600">{e.items.length} items</td>
-                  <td className="px-4 py-3 font-semibold text-stone-800">{formatINR(e.estimatedValue)}</td>
-                  <td className="px-4 py-3 text-stone-500">{formatDate(e.createdAt)}</td>
-                  <td className="px-4 py-3"><StatusBadge status={e.status} /></td>
+        <div>
+          {/* Mobile Card View (<md) */}
+          <div className="grid grid-cols-1 gap-3 md:hidden">
+            {filtered.map((e) => (
+              <Link
+                key={e.id}
+                to={`/enquiries/${e.id}`}
+                className="flex flex-col gap-2.5 rounded-2xl border border-stone-200 bg-white p-4 shadow-xs hover:border-stone-400"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs font-semibold text-stone-700">{e.refNumber}</span>
+                  <StatusBadge status={e.status} />
+                </div>
+                <div>
+                  <p className="text-base font-semibold text-stone-900">{e.businessName}</p>
+                  <p className="text-xs text-stone-400">{e.items.length} items · {formatDate(e.createdAt)}</p>
+                </div>
+                <div className="flex items-center justify-between border-t border-stone-100 pt-2.5 text-xs font-semibold text-stone-800">
+                  <span>Estimated Value</span>
+                  <span className="text-sm font-bold text-stone-900">{formatINR(e.estimatedValue)}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {/* Desktop Table View (>=md) */}
+          <div className="hidden overflow-hidden rounded-2xl border border-stone-200 bg-white md:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-stone-100 bg-stone-50/60 text-left text-xs font-semibold uppercase tracking-wide text-stone-400">
+                  <th className="px-4 py-3">Enquiry</th>
+                  <th className="px-4 py-3">Customer</th>
+                  <th className="px-4 py-3">Products</th>
+                  <th className="px-4 py-3">Estimated Value</th>
+                  <th className="px-4 py-3">Created</th>
+                  <th className="px-4 py-3">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filtered.map((e) => (
+                  <tr key={e.id} className="border-b border-stone-50 last:border-0 hover:bg-stone-50/60">
+                    <td className="px-4 py-3">
+                      <Link to={`/enquiries/${e.id}`} className="font-mono text-xs font-semibold text-stone-700">{e.refNumber}</Link>
+                    </td>
+                    <td className="px-4 py-3 font-medium text-stone-800">{e.businessName}</td>
+                    <td className="px-4 py-3 text-stone-600">{e.items.length} items</td>
+                    <td className="px-4 py-3 font-semibold text-stone-800">{formatINR(e.estimatedValue)}</td>
+                    <td className="px-4 py-3 text-stone-500">{formatDate(e.createdAt)}</td>
+                    <td className="px-4 py-3"><StatusBadge status={e.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

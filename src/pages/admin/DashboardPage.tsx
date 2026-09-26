@@ -112,8 +112,23 @@ export default function DashboardPage() {
       </div>
 
       <div className="rounded-2xl border border-[#e8dcc8] bg-[#fffaf3] p-4 sm:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-serif text-lg font-semibold text-stone-900">Today</h2><p className="text-sm text-stone-500">Your wholesale desk is active and ready to follow up.</p></div><div className="grid grid-cols-2 gap-2 text-sm sm:flex"><Link to="/catalogues" className="rounded-xl bg-white px-3 py-2 font-semibold text-stone-700 shadow-sm">3 catalogue views</Link><Link to="/enquiries" className="rounded-xl bg-white px-3 py-2 font-semibold text-stone-700 shadow-sm">2 new enquiries</Link><Link to="/inventory/low-stock" className="rounded-xl bg-white px-3 py-2 font-semibold text-stone-700 shadow-sm">{stats.lowStock} low stock</Link><Link to="/customers" className="rounded-xl bg-white px-3 py-2 font-semibold text-stone-700 shadow-sm">1 new customer</Link></div></div>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><Link to="/products/new" className="rounded-xl bg-stone-900 px-3 py-2.5 text-center text-sm font-semibold text-white">Add Product</Link><Link to="/inventory/low-stock" className="rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-center text-sm font-semibold text-stone-700">Add Stock</Link><Link to="/customers/new" className="rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-center text-sm font-semibold text-stone-700">Add Customer</Link><Link to="/catalogues/new" className="rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-center text-sm font-semibold text-stone-700">Create Catalogue</Link></div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-serif text-lg font-semibold text-stone-900">Today</h2>
+            <p className="text-xs text-stone-500 sm:text-sm">Your wholesale desk is active and ready to follow up.</p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <Link to="/catalogues" className="rounded-xl bg-white px-3 py-2 font-semibold text-stone-700 shadow-xs">3 catalogue views</Link>
+            <Link to="/enquiries" className="rounded-xl bg-white px-3 py-2 font-semibold text-stone-700 shadow-xs">2 new enquiries</Link>
+            <Link to="/inventory/low-stock" className="rounded-xl bg-white px-3 py-2 font-semibold text-stone-700 shadow-xs">{stats.lowStock} low stock</Link>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          <Link to="/products/new" className="flex h-11 items-center justify-center rounded-xl bg-stone-900 px-3 text-sm font-semibold text-white active:scale-[0.98]">Add Product</Link>
+          <Link to="/inventory/low-stock" className="flex h-11 items-center justify-center rounded-xl border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 active:scale-[0.98]">Add Stock</Link>
+          <Link to="/customers/new" className="flex h-11 items-center justify-center rounded-xl border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 active:scale-[0.98]">Add Customer</Link>
+          <Link to="/catalogues/new" className="flex h-11 items-center justify-center rounded-xl border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 active:scale-[0.98]">Create Catalogue</Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

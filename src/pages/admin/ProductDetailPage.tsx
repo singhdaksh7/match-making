@@ -41,24 +41,24 @@ export default function ProductDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Link to="/products" className="flex items-center gap-1.5 text-sm font-medium text-stone-500 hover:text-stone-800">
           <ArrowLeft size={16} /> Back to Products
         </Link>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => { duplicateProduct(product.id); showToast('Product duplicated') }}
-            className="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3.5 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+            className="flex h-11 items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3.5 text-xs font-semibold text-stone-700 hover:bg-stone-50 active:scale-[0.98] sm:text-sm"
           >
             <Copy size={14} /> Duplicate
           </button>
           <button
             onClick={() => setConfirmArchive(true)}
-            className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3.5 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+            className="flex h-11 items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3.5 text-xs font-semibold text-red-600 hover:bg-red-50 active:scale-[0.98] sm:text-sm"
           >
             <Trash2 size={14} /> Archive
           </button>
-          <Link to={`/products/${product.id}/edit`} className="flex items-center gap-1.5 rounded-xl bg-stone-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-stone-800">
+          <Link to={`/products/${product.id}/edit`} className="flex h-11 items-center gap-1.5 rounded-xl bg-stone-900 px-4 text-xs font-semibold text-white hover:bg-stone-800 active:scale-[0.98] sm:text-sm">
             <Edit3 size={14} /> Edit Product
           </Link>
         </div>

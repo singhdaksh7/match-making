@@ -73,13 +73,13 @@ export default function CustomerFormPage() {
           </select>
         </Field>
         <Field label="Phone *">
-          <input value={form.phone} onChange={(e) => set('phone', e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />
+          <input type="tel" inputMode="tel" value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+91 98765 43210" className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
         </Field>
         <Field label="WhatsApp">
-          <input value={form.whatsapp} onChange={(e) => set('whatsapp', e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />
+          <input type="tel" inputMode="tel" value={form.whatsapp} onChange={(e) => set('whatsapp', e.target.value)} placeholder="+91 98765 43210" className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
         </Field>
         <Field label="Email">
-          <input value={form.email} onChange={(e) => set('email', e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />
+          <input type="email" inputMode="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="contact@example.com" className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
         </Field>
         <Field label="GST Number">
           <input value={form.gstNumber} onChange={(e) => set('gstNumber', e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />

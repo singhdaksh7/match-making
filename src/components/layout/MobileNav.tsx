@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import {
   LayoutDashboard, Shirt, FolderTree, Sliders, AlertTriangle,
   Users, BookOpen, MessageSquare, BarChart3, Settings, LogOut, X,
@@ -21,10 +22,22 @@ const NAV = [
 
 export function MobileNav({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user, logout } = useAuth()
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    document.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+    }
+  }, [open, onClose])
+
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 lg:hidden">
+    <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation drawer">
       <div className="absolute inset-0 bg-stone-900/50 backdrop-blur-[2px] animate-fade-in" onClick={onClose} />
       <div className="absolute inset-y-0 left-0 flex w-72 flex-col bg-white shadow-2xl animate-slide-up">
         <div className="flex items-center justify-between px-5 py-5">
@@ -32,7 +45,7 @@ export function MobileNav({ open, onClose }: { open: boolean; onClose: () => voi
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-stone-900 font-serif text-base font-semibold text-white">V</div>
             <p className="font-serif text-base font-semibold text-stone-900">Vastraa</p>
           </div>
-          <button onClick={onClose} className="rounded-full p-1.5 text-stone-400 hover:bg-stone-100">
+          <button onClick={onClose} aria-label="Close menu" className="flex h-9 w-9 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100">
             <X size={18} />
           </button>
         </div>

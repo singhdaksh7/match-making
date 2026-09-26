@@ -126,8 +126,11 @@ export default function CatalogueProductDetailPage() {
           )}
 
           {catalogue.settings.allowProductSelection && (
-            <button onClick={handleAdd} className="flex w-full items-center justify-center gap-2 rounded-xl bg-stone-900 py-3.5 text-sm font-semibold text-white hover:bg-stone-800">
-              <Check size={16} /> Add to Selection
+            <button
+              onClick={handleAdd}
+              className="sticky bottom-20 z-20 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-stone-900 text-sm font-semibold text-white shadow-lg active:scale-[0.98] sm:static sm:h-auto sm:py-3.5"
+            >
+              <Check size={18} /> Add to Selection
             </button>
           )}
         </div>

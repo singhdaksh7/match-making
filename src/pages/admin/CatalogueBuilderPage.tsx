@@ -148,23 +148,39 @@ export default function CatalogueBuilderPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="rounded-lg p-1.5 text-stone-400 hover:bg-stone-100">
+        <button onClick={() => navigate(-1)} aria-label="Go back" className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100">
           <ArrowLeft size={18} />
         </button>
         <div>
           <h1 className="font-serif text-xl font-semibold text-stone-900 sm:text-2xl">Create Catalogue</h1>
-          {step < 6 && <p className="text-sm text-stone-500">Step {step + 1} of {STEPS.length - 1} — {STEPS[step]}</p>}
+          {step < 6 && <p className="text-xs font-medium text-stone-500 sm:text-sm">Step {step + 1} of {STEPS.length - 1} — <span className="font-semibold text-stone-900">{STEPS[step]}</span></p>}
         </div>
       </div>
 
       {step < 6 && (
-        <div className="flex gap-1.5">
-          {STEPS.slice(0, 6).map((s, i) => <div key={s} className={`h-1.5 flex-1 rounded-full ${i <= step ? 'bg-stone-900' : 'bg-stone-200'}`} />)}
+        <div className="space-y-2">
+          <div className="flex gap-1">
+            {STEPS.slice(0, 6).map((s, i) => (
+              <div key={s} className={`h-1.5 flex-1 rounded-full transition-all ${i <= step ? 'bg-stone-900' : 'bg-stone-200'}`} />
+            ))}
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+            {STEPS.slice(0, 6).map((s, i) => (
+              <span
+                key={s}
+                className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                  i === step ? 'bg-stone-900 text-white' : i < step ? 'bg-stone-200 text-stone-700' : 'bg-stone-100 text-stone-400'
+                }`}
+              >
+                {i + 1}. {s}
+              </span>
+            ))}
+          </div>
         </div>
       )}
 
       {step === 0 && (
-        <div className="rounded-2xl border border-stone-200 bg-white p-5 sm:p-6">
+        <div className="rounded-2xl border border-stone-200 bg-white p-4 sm:p-6">
           <div className="relative mb-4">
             <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
             <input value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} placeholder="Search customers..." className="w-full rounded-xl border border-stone-200 py-2.5 pl-10 pr-4 text-sm" />
@@ -188,7 +204,7 @@ export default function CatalogueBuilderPage() {
       )}
 
       {step === 1 && (
-        <div className="space-y-4 rounded-2xl border border-stone-200 bg-white p-5 sm:p-6">
+        <div className="space-y-4 rounded-2xl border border-stone-200 bg-white p-4 sm:p-6">
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-stone-600">Catalogue Name</label>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder={`September New Arrivals – ${customer?.businessName ?? ''}`} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />
@@ -202,29 +218,31 @@ export default function CatalogueBuilderPage() {
 
       {step === 2 && (
         <div className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex flex-col gap-2.5 sm:flex-row">
             <div className="relative flex-1">
               <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
               <input value={productQuery} onChange={(e) => setProductQuery(e.target.value)} placeholder="Search products..." className="w-full rounded-xl border border-stone-200 py-2.5 pl-10 pr-4 text-sm" />
             </div>
-            <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="rounded-xl border border-stone-200 px-3 py-2.5 text-sm">
-              <option value="">All categories</option>
-              {data.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <button onClick={() => setReadyStockOnly((v) => !v)} className={`whitespace-nowrap rounded-xl border px-3.5 py-2.5 text-sm font-semibold ${readyStockOnly ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-stone-200 text-stone-600'}`}>✓ Ready Stock Only</button>
-            {categoryFilter && (
-              <button onClick={() => toggleCategorySelect(categoryFilter)} className="whitespace-nowrap rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-semibold text-stone-600 hover:bg-stone-50">
-                Select entire category
-              </button>
-            )}
+            <div className="flex flex-wrap gap-2">
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="flex-1 rounded-xl border border-stone-200 px-3 py-2.5 text-sm sm:flex-none">
+                <option value="">All categories</option>
+                {data.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button onClick={() => setReadyStockOnly((v) => !v)} className={`rounded-xl border px-3.5 py-2.5 text-xs font-semibold ${readyStockOnly ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-stone-200 text-stone-600'}`}>✓ Ready Stock</button>
+              {categoryFilter && (
+                <button onClick={() => toggleCategorySelect(categoryFilter)} className="rounded-xl border border-stone-200 px-3.5 py-2.5 text-xs font-semibold text-stone-600 hover:bg-stone-50">
+                  Select category
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 pb-20 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 pb-6 sm:grid-cols-3 lg:grid-cols-4">
             {filteredProducts.map((p) => (
               <button
                 key={p.id}
                 onClick={() => toggleProduct(p.id)}
-                className={`relative overflow-hidden rounded-2xl border-2 text-left transition-all ${selectedIds.has(p.id) ? 'border-stone-900' : 'border-transparent'}`}
+                className={`relative overflow-hidden rounded-2xl border-2 text-left transition-all ${selectedIds.has(p.id) ? 'border-stone-900 ring-2 ring-stone-900/10' : 'border-transparent'}`}
               >
                 <div className="aspect-[3/4] bg-stone-100">
                   <ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-full w-full object-cover" />
@@ -239,12 +257,6 @@ export default function CatalogueBuilderPage() {
               </button>
             ))}
           </div>
-
-          {selectedIds.size > 0 && (
-            <div className="fixed inset-x-0 bottom-0 z-20 border-t border-stone-200 bg-white/95 px-4 py-3 backdrop-blur sm:sticky sm:rounded-xl sm:border">
-              <p className="text-center text-sm font-semibold text-stone-800">{selectedIds.size} Products Selected</p>
-            </div>
-          )}
         </div>
       )}
 
@@ -441,16 +453,35 @@ export default function CatalogueBuilderPage() {
       <CatalogueQrModal open={qrOpen} onClose={() => setQrOpen(false)} url={catalogueLink} onCopy={() => { navigator.clipboard.writeText(catalogueLink); showToast('Catalogue link copied') }} />
 
       {step < 6 && (
-        <div className="flex items-center justify-between pb-4">
-          <button onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0} className="rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-semibold text-stone-600 disabled:opacity-40">
+        <div className="sticky bottom-16 z-30 flex items-center justify-between border-t border-stone-200 bg-white/95 px-4 py-3 shadow-md backdrop-blur-md sm:bottom-0 sm:rounded-2xl sm:border">
+          <button
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            disabled={step === 0}
+            className="flex h-11 items-center justify-center rounded-xl border border-stone-200 px-4 text-sm font-semibold text-stone-600 active:bg-stone-50 disabled:opacity-40"
+          >
             Back
           </button>
+          {step === 2 && (
+            <span className="text-xs font-semibold text-stone-700 sm:text-sm">
+              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-stone-900 px-2 text-xs font-bold text-white mr-1.5">
+                {selectedIds.size}
+              </span>
+              Selected
+            </span>
+          )}
           {step < 5 ? (
-            <button onClick={() => canProceed() && setStep((s) => s + 1)} disabled={!canProceed()} className="flex items-center gap-1.5 rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">
+            <button
+              onClick={() => canProceed() && setStep((s) => s + 1)}
+              disabled={!canProceed()}
+              className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-stone-900 px-5 text-sm font-semibold text-white shadow-sm active:scale-[0.98] disabled:opacity-40"
+            >
               Continue <ArrowRight size={15} />
             </button>
           ) : (
-            <button onClick={handleGenerate} className="flex items-center gap-1.5 rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white">
+            <button
+              onClick={handleGenerate}
+              className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-stone-900 px-5 text-sm font-semibold text-white shadow-sm active:scale-[0.98]"
+            >
               <Check size={15} /> Generate Catalogue Link
             </button>
           )}

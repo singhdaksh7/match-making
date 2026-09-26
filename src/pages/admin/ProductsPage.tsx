@@ -123,39 +123,62 @@ export default function ProductsPage() {
           {filtered.map((p) => <ProductCard key={p.id} product={p} onQuickView={setQuickProduct} />)}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-b border-stone-100 text-left text-xs font-semibold uppercase tracking-wide text-stone-400">
-                <th className="px-4 py-3">Product</th>
-                <th className="px-4 py-3">Category</th>
-                <th className="px-4 py-3">Price</th>
-                <th className="px-4 py-3">Variants</th>
-                <th className="px-4 py-3">Stock</th>
-                <th className="px-4 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p) => (
-                <tr key={p.id} className="border-b border-stone-50 last:border-0 hover:bg-stone-50">
-                  <td className="px-4 py-3">
-                    <Link to={`/products/${p.id}`} className="flex items-center gap-3">
-                      <ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-10 w-10 shrink-0 rounded-lg object-cover" />
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-stone-800">{p.name}</p>
-                        <p className="text-xs text-stone-400">{p.code}</p>
-                      </div>
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-stone-600">{categoryName(data, p.categoryId)}</td>
-                  <td className="px-4 py-3 font-semibold text-stone-800">{formatINR(p.wholesalePrice)}</td>
-                  <td className="px-4 py-3 text-stone-600">{variantsForProduct(data, p.id).length}</td>
-                  <td className="px-4 py-3 text-stone-600">{totalStockForProduct(data, p.id)}</td>
-                  <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
+        <div>
+          {/* Mobile Card List View (<md) */}
+          <div className="grid grid-cols-1 gap-3 md:hidden">
+            {filtered.map((p) => (
+              <div key={p.id} className="flex items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-white p-3 shadow-xs">
+                <Link to={`/products/${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                  <ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-stone-800">{p.name}</p>
+                    <p className="text-xs text-stone-400">{p.code} · {categoryName(data, p.categoryId)}</p>
+                    <p className="mt-1 text-xs font-bold text-stone-900">{formatINR(p.wholesalePrice)} <span className="font-normal text-stone-400">({totalStockForProduct(data, p.id)} pcs)</span></p>
+                  </div>
+                </Link>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <StatusBadge status={p.status} />
+                  <button onClick={() => setQuickProduct(p)} className="rounded-lg border border-stone-200 px-2 py-1 text-[11px] font-semibold text-stone-600">Quick View</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop Table View (>=md) */}
+          <div className="hidden overflow-x-auto rounded-2xl border border-stone-200 bg-white md:block">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="border-b border-stone-100 text-left text-xs font-semibold uppercase tracking-wide text-stone-400">
+                  <th className="px-4 py-3">Product</th>
+                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Price</th>
+                  <th className="px-4 py-3">Variants</th>
+                  <th className="px-4 py-3">Stock</th>
+                  <th className="px-4 py-3">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filtered.map((p) => (
+                  <tr key={p.id} className="border-b border-stone-50 last:border-0 hover:bg-stone-50">
+                    <td className="px-4 py-3">
+                      <Link to={`/products/${p.id}`} className="flex items-center gap-3">
+                        <ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-10 w-10 shrink-0 rounded-lg object-cover" />
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-stone-800">{p.name}</p>
+                          <p className="text-xs text-stone-400">{p.code}</p>
+                        </div>
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-stone-600">{categoryName(data, p.categoryId)}</td>
+                    <td className="px-4 py-3 font-semibold text-stone-800">{formatINR(p.wholesalePrice)}</td>
+                    <td className="px-4 py-3 text-stone-600">{variantsForProduct(data, p.id).length}</td>
+                    <td className="px-4 py-3 text-stone-600">{totalStockForProduct(data, p.id)}</td>
+                    <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

@@ -1,26 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { AppData } from '@/services/seed'
-import { buildSeedData, isValidAppData } from '@/services/seed'
-import { loadJSON, saveJSON, STORAGE_KEYS } from '@/services/storage'
+import { DEFAULT_APP_SETTINGS } from '@/data/business'
+import { apiClient } from '@/services/api/client'
+import { backendAttributeToFrontend, backendCatalogueToFrontend, backendCategoryToFrontend, backendCollectionToFrontend, backendCustomerToFrontend, backendEnquiryToFrontend, backendProductToFrontend, backendVariantToFrontend } from '@/services/api/adapters'
+import { useAuth } from '@/context/AuthContext'
 import type {
   Attribute, AttributeValue, Catalogue, CatalogueStatus, Category, Customer,
   Enquiry, EnquiryStatus, InventoryEntry, InventoryReason, Notification,
   Collection, Product, ProductVariant,
 } from '@/types'
 
-const DATA_KEY = 'app_data'
-// Increment this whenever the demo seed shape or its cross-record references change.
-const DEMO_DATA_VERSION = '3'
-
-function loadInitialData(): AppData {
-  const storedVersion = loadJSON<string>(STORAGE_KEYS.demoDataVersion, '')
-  if (storedVersion !== DEMO_DATA_VERSION) return buildSeedData()
-
-  const storedData = loadJSON<AppData | null>(DATA_KEY, null)
-  if (!storedData || !isValidAppData(storedData)) return buildSeedData()
-
-  return storedData
-}
+const emptyData = (): AppData => ({ products: [], variants: [], categories: [], attributes: [], customers: [], collections: [], customerActivities: [], catalogues: [], enquiries: [], notifications: [], inventoryEntries: [], settings: structuredClone(DEFAULT_APP_SETTINGS) })
 
 function genId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
@@ -29,7 +19,7 @@ function genId(prefix: string) {
 interface AppDataContextValue {
   data: AppData
   // products
-  addProduct: (product: Product, variants: ProductVariant[]) => void
+  addProduct: (product: Product, variants: ProductVariant[]) => Promise<string>
   updateProduct: (id: string, patch: Partial<Product>) => void
   archiveProduct: (id: string) => void
   duplicateProduct: (id: string) => void
@@ -59,7 +49,7 @@ interface AppDataContextValue {
   deleteCatalogue: (id: string) => void
   recordCatalogueVisit: (slug: string) => void
   // enquiries
-  submitEnquiry: (enquiry: Enquiry) => void
+  submitEnquiry: (enquiry: Enquiry) => Promise<{ reference?: string }>
   updateEnquiryStatus: (id: string, status: EnquiryStatus, note?: string) => void
   // notifications
   markNotificationRead: (id: string) => void
@@ -73,27 +63,40 @@ interface AppDataContextValue {
 const AppDataContext = createContext<AppDataContextValue | null>(null)
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<AppData>(loadInitialData)
+  const { user } = useAuth()
+  const [data, setData] = useState<AppData>(emptyData)
+
+  const refresh = useCallback(async () => {
+    if (!user) {
+      const match = window.location.pathname.match(/^\/catalogue\/([^/]+)/)
+      if (!match) { setData(emptyData()); return }
+      const publicCatalogue = await apiClient.get<any>(`/api/v1/public/catalogues/${encodeURIComponent(match[1])}`)
+      const products = publicCatalogue.products.map((product: any) => ({ id: product.id, code: product.code, name: product.name, categoryId: '', description: product.description ?? '', media: product.media.map((media: any, index: number) => ({ id: `${product.id}-${index}`, url: media.url, isPrimary: media.primary })), attributeIds: [], wholesalePrice: Number(product.variants[0]?.price ?? 0), moq: product.moq ?? 1, status: 'active' as const, views: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }))
+      const variants = publicCatalogue.products.flatMap((product: any) => product.variants.map((variant: any) => ({ id: variant.id, productId: product.id, sku: variant.sku, attributes: Object.fromEntries(Object.entries(variant.attributes ?? {}).map(([key, value]) => [key.toLowerCase(), value])) as Record<string, string>, price: Number(variant.price ?? 0), stock: variant.stock ?? (variant.available === false ? 0 : 1), reserved: 0, status: 'active' as const, lowStockThreshold: 10 })))
+      setData((current) => ({ ...current, products, variants, catalogues: [{ id: match[1], slug: match[1], name: publicCatalogue.title, message: publicCatalogue.message ?? undefined, customerId: '', items: products.map((product: Product) => ({ productId: product.id, variantFilter: {}, allVariants: true })), settings: { showWholesalePrice: publicCatalogue.settings.showPrice, showExactStock: publicCatalogue.settings.showExactStock, showAvailability: publicCatalogue.settings.showAvailability, showMOQ: publicCatalogue.settings.showMOQ, allowProductSelection: publicCatalogue.settings.allowSelection, allowEnquiry: publicCatalogue.settings.allowEnquiry, allowImageDownload: publicCatalogue.settings.allowImageDownload, priceAdjustmentType: 'none', priceAdjustmentValue: 0, pinProtected: false, expiry: 'never' }, status: 'active', views: 0, uniqueVisitors: 0, createdAt: new Date().toISOString(), expiresAt: publicCatalogue.expiresAt ?? null }] }))
+      return
+    }
+    const [products, categories, attributes, customers, collections, catalogues, enquiries] = await Promise.all([
+      apiClient.get<any[]>('/api/v1/products?limit=100'), apiClient.get<any[]>('/api/v1/categories?limit=100'), apiClient.get<any[]>('/api/v1/attributes'), apiClient.get<any[]>('/api/v1/customers?limit=100'), apiClient.get<any[]>('/api/v1/collections?limit=100'), apiClient.get<any[]>('/api/v1/catalogues?limit=100'), apiClient.get<any[]>('/api/v1/enquiries?limit=100'),
+    ])
+    const mappedProducts = products.map(backendProductToFrontend)
+    setData((current) => ({ ...current, products: mappedProducts, variants: products.flatMap((product: any) => (product.variants ?? []).map((variant: any) => backendVariantToFrontend(variant, product.id))), categories: categories.map(backendCategoryToFrontend), attributes: attributes.map(backendAttributeToFrontend), customers: customers.map(backendCustomerToFrontend), collections: collections.map(backendCollectionToFrontend), catalogues: catalogues.map(backendCatalogueToFrontend), enquiries: enquiries.map(backendEnquiryToFrontend) }))
+  }, [user])
 
   useEffect(() => {
-    saveJSON(DATA_KEY, data)
-    saveJSON(STORAGE_KEYS.demoDataVersion, DEMO_DATA_VERSION)
-  }, [data])
+    refresh().catch(() => { /* pages retain an empty, safe state; auth surfaces API failure */ })
+  }, [refresh])
 
-  const addProduct = useCallback((product: Product, variants: ProductVariant[]) => {
-    setData((d) => ({ ...d, products: [product, ...d.products], variants: [...d.variants, ...variants] }))
-  }, [])
+  const addProduct = useCallback(async (product: Product, variants: ProductVariant[]) => {
+    const attributeValueIds = (attributes: Record<string, string>) => Object.values(attributes).flatMap((value) => data.attributes.flatMap((attribute) => attribute.values.filter((item) => item.value === value).map((item) => item.id)))
+    const created = await apiClient.post<any>('/api/v1/products', { categoryId: product.categoryId, code: product.code, name: product.name, description: product.description, basePrice: product.wholesalePrice, moq: product.moq, status: product.status.toUpperCase(), attributeIds: product.attributeIds, media: product.media.filter((media: any) => media.objectKey).map((media: any, sortOrder: number) => ({ objectKey: media.objectKey, url: media.url, mimeType: media.mimeType ?? 'image/jpeg', primary: media.isPrimary, sortOrder })), variants: variants.map((variant) => ({ sku: variant.sku, price: variant.price, stock: variant.stock, attributeValueIds: attributeValueIds(variant.attributes) })) })
+    await refresh()
+    return created.id as string
+  }, [data.attributes, refresh])
 
-  const updateProduct = useCallback((id: string, patch: Partial<Product>) => {
-    setData((d) => ({
-      ...d,
-      products: d.products.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p)),
-    }))
-  }, [])
+  const updateProduct = useCallback(async (id: string, patch: Partial<Product>) => { await apiClient.patch(`/api/v1/products/${id}`, { ...(patch.name !== undefined ? { name: patch.name } : {}), ...(patch.description !== undefined ? { description: patch.description } : {}), ...(patch.wholesalePrice !== undefined ? { basePrice: patch.wholesalePrice } : {}), ...(patch.moq !== undefined ? { moq: patch.moq } : {}), ...(patch.status !== undefined ? { status: patch.status.toUpperCase() } : {}) }); await refresh() }, [refresh])
 
-  const archiveProduct = useCallback((id: string) => {
-    setData((d) => ({ ...d, products: d.products.map((p) => (p.id === id ? { ...p, status: 'archived' } : p)) }))
-  }, [])
+  const archiveProduct = useCallback(async (id: string) => { await apiClient.patch(`/api/v1/products/${id}`, { status: 'ARCHIVED' }); await refresh() }, [refresh])
 
   const duplicateProduct = useCallback((id: string) => {
     setData((d) => {
@@ -124,7 +127,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setData((d) => ({ ...d, variants: d.variants.map((v) => (v.id === id ? { ...v, ...patch } : v)) }))
   }, [])
 
-  const adjustStock = useCallback((variantId: string, type: 'add' | 'remove' | 'set', quantity: number, reason: InventoryReason, note?: string) => {
+  const adjustStock = useCallback(async (variantId: string, type: 'add' | 'remove' | 'set', quantity: number, reason: InventoryReason, note?: string) => {
+    const current = data.variants.find((variant) => variant.id === variantId)?.stock ?? 0
+    const delta = type === 'set' ? quantity - current : quantity
+    if (delta === 0) return
+    await apiClient.post('/api/v1/inventory/movements', { variantId, type: delta < 0 ? 'SALE' : 'ADJUSTMENT', quantity: Math.abs(delta), reason, reference: note })
+    await refresh()
+    return
+    /* Legacy optimistic implementation retained below only for type-compatible unreachable fallback. */
     setData((d) => {
       const variant = d.variants.find((v) => v.id === variantId)
       if (!variant) return d
@@ -152,7 +162,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         inventoryEntries: [entry, ...d.inventoryEntries],
       }
     })
-  }, [])
+  }, [data.variants, refresh])
 
   const incrementProductViews = useCallback((id: string) => {
     setData((d) => ({ ...d, products: d.products.map((p) => (p.id === id ? { ...p, views: p.views + 1 } : p)) }))
@@ -189,49 +199,24 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }))
   }, [])
 
-  const addCustomer = useCallback((customer: Customer) => {
-    setData((d) => ({ ...d, customers: [customer, ...d.customers] }))
-  }, [])
-  const updateCustomer = useCallback((id: string, patch: Partial<Customer>) => {
-    setData((d) => ({ ...d, customers: d.customers.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))
-  }, [])
-  const archiveCustomer = useCallback((id: string) => {
-    setData((d) => ({ ...d, customers: d.customers.map((c) => (c.id === id ? { ...c, status: 'inactive' } : c)) }))
-  }, [])
+  const addCustomer = useCallback(async (customer: Customer) => { await apiClient.post('/api/v1/customers', { businessName: customer.businessName, contactPerson: customer.contactPerson, phone: customer.phone, whatsapp: customer.whatsapp || undefined, email: customer.email || undefined, city: customer.city || undefined, state: customer.state || undefined, type: customer.type.toUpperCase(), gstNumber: customer.gstNumber, notes: customer.notes, status: customer.status.toUpperCase() }); await refresh() }, [refresh])
+  const updateCustomer = useCallback(async (id: string, patch: Partial<Customer>) => { await apiClient.patch(`/api/v1/customers/${id}`, { ...patch, ...(patch.type ? { type: patch.type.toUpperCase() } : {}), ...(patch.status ? { status: patch.status.toUpperCase() } : {}) }); await refresh() }, [refresh])
+  const archiveCustomer = useCallback(async (id: string) => { await apiClient.patch(`/api/v1/customers/${id}`, { status: 'ARCHIVED' }); await refresh() }, [refresh])
 
   const addCollection = useCallback((collection: Collection) => {
     setData((d) => ({ ...d, collections: [collection, ...d.collections] }))
   }, [])
 
-  const createCatalogue = useCallback((catalogue: Catalogue) => {
-    setData((d) => ({ ...d, catalogues: [catalogue, ...d.catalogues] }))
-  }, [])
-  const updateCatalogue = useCallback((id: string, patch: Partial<Catalogue>) => {
-    setData((d) => ({ ...d, catalogues: d.catalogues.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))
-  }, [])
-  const duplicateCatalogue = useCallback((id: string) => {
-    setData((d) => {
-      const source = d.catalogues.find((c) => c.id === id)
-      if (!source) return d
-      const copy: Catalogue = {
-        ...source,
-        id: genId('cat-log'),
-        slug: genId('link').slice(-10),
-        name: `${source.name} (Copy)`,
-        status: 'draft',
-        views: 0,
-        uniqueVisitors: 0,
-        createdAt: new Date().toISOString(),
-      }
-      return { ...d, catalogues: [copy, ...d.catalogues] }
-    })
-  }, [])
-  const setCatalogueStatus = useCallback((id: string, status: CatalogueStatus) => {
-    setData((d) => ({ ...d, catalogues: d.catalogues.map((c) => (c.id === id ? { ...c, status } : c)) }))
-  }, [])
-  const deleteCatalogue = useCallback((id: string) => {
-    setData((d) => ({ ...d, catalogues: d.catalogues.filter((c) => c.id !== id) }))
-  }, [])
+  const createCatalogue = useCallback(async (catalogue: Catalogue) => { await apiClient.post('/api/v1/catalogues', { customerId: catalogue.customerId || undefined, title: catalogue.name, message: catalogue.message, expiresAt: catalogue.expiresAt || undefined, status: catalogue.status.toUpperCase(), showPrice: catalogue.settings.showWholesalePrice, showExactStock: catalogue.settings.showExactStock, showAvailability: catalogue.settings.showAvailability, showMOQ: catalogue.settings.showMOQ, allowSelection: catalogue.settings.allowProductSelection, allowEnquiry: catalogue.settings.allowEnquiry, allowImageDownload: catalogue.settings.allowImageDownload, priceAdjustmentPct: catalogue.settings.priceAdjustmentValue, pin: catalogue.settings.pin, items: catalogue.items.map((item) => ({ productId: item.productId })) }); await refresh() }, [refresh])
+  const updateCatalogue = useCallback(async (id: string, patch: Partial<Catalogue>) => { await apiClient.patch(`/api/v1/catalogues/${id}`, { ...(patch.name ? { title: patch.name } : {}), ...(patch.message !== undefined ? { message: patch.message } : {}), ...(patch.status ? { status: patch.status.toUpperCase() } : {}) }); await refresh() }, [refresh])
+  const duplicateCatalogue = useCallback(async (id: string) => {
+    const source = data.catalogues.find((c) => c.id === id)
+    if (!source) return
+    await apiClient.post('/api/v1/catalogues', { title: `${source.name} (Copy)`, message: source.message, status: 'DRAFT', showPrice: source.settings.showWholesalePrice, showExactStock: source.settings.showExactStock, showAvailability: source.settings.showAvailability, showMOQ: source.settings.showMOQ, allowSelection: source.settings.allowProductSelection, allowEnquiry: source.settings.allowEnquiry, allowImageDownload: source.settings.allowImageDownload, items: source.items.map((item) => ({ productId: item.productId })) })
+    await refresh()
+  }, [data.catalogues, refresh])
+  const setCatalogueStatus = useCallback(async (id: string, status: CatalogueStatus) => { await apiClient.patch(`/api/v1/catalogues/${id}`, { status: status.toUpperCase() }); await refresh() }, [refresh])
+  const deleteCatalogue = useCallback(async (id: string) => { await apiClient.delete(`/api/v1/catalogues/${id}`); await refresh() }, [refresh])
   const recordCatalogueVisit = useCallback((slug: string) => {
     setData((d) => ({
       ...d,
@@ -239,7 +224,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }))
   }, [])
 
-  const submitEnquiry = useCallback((enquiry: Enquiry) => {
+  const submitEnquiry = useCallback(async (enquiry: Enquiry) => {
+    const catalogue = data.catalogues.find((item) => item.id === enquiry.catalogueId)
+    if (!catalogue) throw new Error('Catalogue is unavailable')
+    const result = await apiClient.post<{ reference?: string }>(`/api/v1/public/catalogues/${catalogue.slug}/enquiries`, { contactName: enquiry.contactName, phone: enquiry.phone, message: enquiry.message, items: enquiry.items.map((item) => ({ productId: item.productId, variantId: item.variantId, quantity: item.quantity })) })
+    await refresh()
+    return result
     setData((d) => ({
       ...d,
       enquiries: [enquiry, ...d.enquiries],
@@ -257,9 +247,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         ...d.notifications,
       ],
     }))
-  }, [])
+  }, [data.catalogues, refresh])
 
-  const updateEnquiryStatus = useCallback((id: string, status: EnquiryStatus, note?: string) => {
+  const updateEnquiryStatus = useCallback(async (id: string, status: EnquiryStatus, note?: string) => {
+    await apiClient.patch(`/api/v1/enquiries/${id}/status`, { status: status.toUpperCase(), note })
+    await refresh()
+    return
     setData((d) => ({
       ...d,
       enquiries: d.enquiries.map((e) =>
@@ -268,7 +261,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           : e,
       ),
     }))
-  }, [])
+  }, [refresh])
 
   const markNotificationRead = useCallback((id: string) => {
     setData((d) => ({ ...d, notifications: d.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)) }))
@@ -281,10 +274,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setData((d) => ({ ...d, settings: { ...d.settings, ...patch } }))
   }, [])
 
-  const resetDemoData = useCallback(() => {
-    const fresh = buildSeedData()
-    setData(fresh)
-  }, [])
+  const resetDemoData = useCallback(() => { void refresh() }, [refresh])
 
   const value = useMemo<AppDataContextValue>(() => ({
     data,
@@ -312,5 +302,3 @@ export function useAppData() {
   if (!ctx) throw new Error('useAppData must be used within AppDataProvider')
   return ctx
 }
-
-export { STORAGE_KEYS }

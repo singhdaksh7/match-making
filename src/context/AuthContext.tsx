@@ -1,39 +1,51 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { OWNER } from '@/data/business'
-import { loadJSON, saveJSON } from '@/services/storage'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ApiError, apiClient } from '@/services/api/client'
+import { backendUserToFrontendUser } from '@/services/api/adapters'
 import type { User } from '@/types'
 
-const AUTH_KEY = 'auth_user'
-
 export const DEMO_EMAIL = 'admin@vastraa.demo'
-export const DEMO_PASSWORD = 'admin123'
+export const DEMO_PASSWORD = 'ChangeMe123!'
 
 interface AuthContextValue {
   user: User | null
-  login: (email: string, password: string) => { success: boolean; error?: string }
-  logout: () => void
+  ready: boolean
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => loadJSON<User | null>(AUTH_KEY, null))
+  const [user, setUser] = useState<User | null>(null)
+  const [ready, setReady] = useState(false)
 
-  const login = useCallback((email: string, password: string) => {
-    if (email.trim().toLowerCase() === DEMO_EMAIL && password === DEMO_PASSWORD) {
-      setUser(OWNER)
-      saveJSON(AUTH_KEY, OWNER)
+  useEffect(() => {
+    let active = true
+    apiClient.get<{ user: unknown }>('/api/v1/auth/me')
+      .then((result) => active && setUser(backendUserToFrontendUser(result.user)))
+      .catch(() => undefined)
+      .finally(() => active && setReady(true))
+    return () => { active = false }
+  }, [])
+
+  const login = useCallback(async (email: string, password: string) => {
+    try {
+      const result = await apiClient.post<{ user: unknown }>('/api/v1/auth/login', { email, password })
+      setUser(backendUserToFrontendUser(result.user))
       return { success: true }
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'UNAUTHENTICATED') return { success: false, error: 'Invalid email or password.' }
+      if (error instanceof ApiError && error.code === 'NETWORK') return { success: false, error: 'Vastraa is unavailable. Please try again shortly.' }
+      return { success: false, error: 'We could not sign you in. Please try again.' }
     }
-    return { success: false, error: 'Invalid email or password. Use the demo credentials shown below.' }
   }, [])
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try { await apiClient.post('/api/v1/auth/logout') } catch { /* local session should still end */ }
     setUser(null)
-    saveJSON(AUTH_KEY, null)
   }, [])
 
-  const value = useMemo(() => ({ user, login, logout }), [user, login, logout])
+  const value = useMemo(() => ({ user, ready, login, logout }), [user, ready, login, logout])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

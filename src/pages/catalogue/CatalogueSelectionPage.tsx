@@ -39,7 +39,7 @@ export default function CatalogueSelectionPage() {
   const totalPieces = rows.reduce((sum, r) => sum + r.item.quantity, 0)
   const designCount = new Set(rows.map((r) => r.product.id)).size
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!contactName.trim() || !phone.trim()) return
     setSubmitting(true)
     const enquiry: Enquiry = {
@@ -58,11 +58,13 @@ export default function CatalogueSelectionPage() {
       createdAt: new Date().toISOString(),
       timeline: [{ status: 'New', at: new Date().toISOString() }],
     }
-    setTimeout(() => {
-      submitEnquiry(enquiry)
+    try {
+      const result = await submitEnquiry(enquiry)
       selection.clear()
-      navigate(`/catalogue/${slug}/enquiry-success`, { state: { refNumber: enquiry.refNumber, designs: designCount, variants: rows.length, pieces: totalPieces, estimatedValue } })
-    }, 500)
+      navigate(`/catalogue/${slug}/enquiry-success`, { state: { refNumber: result.reference ?? enquiry.refNumber, designs: designCount, variants: rows.length, pieces: totalPieces, estimatedValue } })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -112,25 +114,25 @@ export default function CatalogueSelectionPage() {
                 <input value={customer?.businessName ?? ''} disabled className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-sm text-stone-500" />
               </Field>
               <Field label="Contact Name">
-                <input value={contactName} onChange={(e) => setContactName(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />
+                <input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
               </Field>
               <Field label="Phone">
-                <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />
+                <input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
               </Field>
               <Field label="WhatsApp">
-                <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />
+                <input type="tel" inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
               </Field>
               <Field label="Message (optional)">
-                <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm" />
+                <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3} className="w-full rounded-xl border border-stone-200 p-3 text-sm" />
               </Field>
             </div>
 
             <button
               onClick={handleSubmit}
               disabled={submitting || !contactName.trim() || !phone.trim()}
-              className="mt-4 w-full rounded-xl bg-stone-900 py-3.5 text-sm font-semibold text-white hover:bg-stone-800 disabled:opacity-50"
+              className="mt-4 flex h-12 w-full items-center justify-center rounded-2xl bg-stone-900 text-sm font-semibold text-white shadow-md active:scale-[0.98] disabled:opacity-50"
             >
-              {submitting ? 'Sending...' : 'Send Enquiry'}
+              {submitting ? 'Sending Enquiry...' : 'Send Enquiry'}
             </button>
           </>
         )}

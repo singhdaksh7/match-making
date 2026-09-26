@@ -37,11 +37,12 @@ export function FilterButton({ active, onClick }: { active: boolean; onClick: ()
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium ${
-        active ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'
+      type="button"
+      className={`flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition-all active:scale-[0.98] ${
+        active ? 'border-stone-900 bg-stone-900 text-white shadow-xs' : 'border-stone-200 bg-white text-stone-700 hover:bg-stone-50'
       }`}
     >
-      <SlidersHorizontal size={15} /> Filters
+      <SlidersHorizontal size={16} /> Filters
     </button>
   )
 }
