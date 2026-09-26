@@ -87,7 +87,7 @@ export default function AttributesPage() {
                       <span key={v.id} className="flex items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 py-1 pl-2.5 pr-1.5 text-xs font-medium text-stone-700">
                         {attr.type === 'color' && <ColorSwatch hex={v.hex} name={v.value} size="sm" />}
                         {v.value}
-                        <button onClick={() => deleteAttributeValue(attr.id, v.id)} className="rounded-full p-0.5 text-stone-400 hover:bg-stone-200 hover:text-stone-700">
+                        <button onClick={() => deleteAttributeValue(attr.id, v.id).catch((error) => showToast(error instanceof Error ? error.message : 'Could not delete value', 'error'))} className="rounded-full p-0.5 text-stone-400 hover:bg-stone-200 hover:text-stone-700">
                           <X size={11} />
                         </button>
                       </span>

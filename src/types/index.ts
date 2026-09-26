@@ -82,6 +82,8 @@ export interface Product {
   description: string
   media: ProductMedia[]
   attributeIds: string[]
+  /** Product-specific allowed AttributeValue ids. Not the global catalogue. */
+  allowedAttributeValueIds: string[]
   wholesalePrice: number
   comparePrice?: number
   moq: number

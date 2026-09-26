@@ -1,4 +1,5 @@
 import type { Product, ProductVariant, VariantAttributes } from '@/types'
+import { ATTRIBUTES } from './attributes'
 import { imagesForCategory } from './images'
 
 interface SeedProductConfig {
@@ -20,6 +21,7 @@ interface SeedProductConfig {
   moq: number
   daysAgo: number
   views: number
+  explicitCombos?: { fabric?: string; color: string; size: string }[]
 }
 
 let productSeq = 100
@@ -80,9 +82,15 @@ function cartesian(fabrics: string[] | undefined, colors: string[], sizes: strin
   return dims
 }
 
+function valueIds(attrId: string, names: string[]) {
+  const attr = ATTRIBUTES.find((item) => item.id === attrId)
+  if (!attr) return []
+  return names.map((name) => attr.values.find((item) => item.value === name)?.id).filter((id): id is string => Boolean(id))
+}
+
 const CONFIGS: SeedProductConfig[] = [
   // ---------- Kurtis ----------
-  { code: 'K-101', name: 'Floral Rayon Straight Kurti', categoryId: 'cat-kurtis', categorySlug: 'kurtis', description: 'A breathable rayon straight-cut kurti with an all-over floral print, tailored for everyday wholesale demand.', fabrics: ['Rayon', 'Cotton'], colors: ['Black', 'Maroon', 'Navy', 'Bottle Green'], sizes: ['M', 'L', 'XL', 'XXL'], pattern: 'Floral', work: 'Plain', basePrice: 425, moq: 12, daysAgo: 3, views: 186 },
+  { code: 'K-101', name: 'Floral Rayon Straight Kurti', categoryId: 'cat-kurtis', categorySlug: 'kurtis', description: 'A breathable rayon straight-cut kurti with an all-over floral print, tailored for everyday wholesale demand.', fabrics: ['Rayon'], colors: ['Black', 'Maroon'], sizes: ['L', 'XL'], pattern: 'Floral', work: 'Plain', basePrice: 425, moq: 12, daysAgo: 3, views: 186, explicitCombos: [{ fabric: 'Rayon', color: 'Black', size: 'XL' }, { fabric: 'Rayon', color: 'Maroon', size: 'L' }] },
   { code: 'K-102', name: 'Embroidered A-Line Kurti', categoryId: 'cat-kurtis', categorySlug: 'kurtis', description: 'A-line silhouette kurti finished with fine thread embroidery on the yoke.', fabrics: ['Georgette', 'Rayon'], colors: ['Wine', 'Peach', 'Cream'], sizes: ['S', 'M', 'L', 'XL'], pattern: 'Embroidered', work: 'Thread Work', basePrice: 550, moq: 10, daysAgo: 6, views: 142 },
   { code: 'K-103', name: 'Premium Cotton Printed Kurti', categoryId: 'cat-kurtis', categorySlug: 'kurtis', description: 'Premium cotton kurti in a vivid printed pattern, popular for daily-wear wholesale orders.', fabrics: ['Cotton'], colors: ['Mustard', 'Teal', 'Maroon', 'White'], sizes: ['M', 'L', 'XL'], pattern: 'Printed', work: 'Plain', basePrice: 380, moq: 15, daysAgo: 11, views: 98 },
   { code: 'K-104', name: 'Chiffon Layered Kurti', categoryId: 'cat-kurtis', categorySlug: 'kurtis', description: 'Flowy chiffon kurti with a layered hem, finished with delicate mirror work.', fabrics: ['Chiffon'], colors: ['Rani Pink', 'Lavender', 'Sky Blue'], sizes: ['S', 'M', 'L'], pattern: 'Solid', work: 'Mirror Work', basePrice: 620, moq: 8, daysAgo: 20, views: 76 },
@@ -138,7 +146,9 @@ export const VARIANTS: ProductVariant[] = []
 for (const cfg of CONFIGS) {
   productSeq++
   const id = `prod-${productSeq}`
-  const dims = cfg.waists
+  const dims = cfg.explicitCombos
+    ? cfg.explicitCombos
+    : cfg.waists
     ? cartesian(undefined, cfg.colors, cfg.waists)
     : cartesian(cfg.fabrics, cfg.colors, cfg.sizes ?? ['M', 'L', 'XL'])
   const variants = buildVariants(id, cfg.code, dims, cfg.basePrice)
@@ -155,6 +165,17 @@ for (const cfg of CONFIGS) {
     cfg.washes ? 'attr-wash' : null,
   ].filter(Boolean) as string[]
 
+  const allowedAttributeValueIds = [
+    ...valueIds('attr-fabric', cfg.fabrics ?? []),
+    ...valueIds('attr-color', cfg.colors),
+    ...valueIds(cfg.waists ? 'attr-waist' : 'attr-size', cfg.waists ?? cfg.sizes ?? []),
+    ...valueIds('attr-pattern', cfg.pattern ? [cfg.pattern] : []),
+    ...valueIds('attr-print', cfg.print ? [cfg.print] : []),
+    ...valueIds('attr-fit', cfg.fits ?? []),
+    ...valueIds('attr-work', cfg.work ? [cfg.work] : []),
+    ...valueIds('attr-wash', cfg.washes ?? []),
+  ]
+
   PRODUCTS.push({
     id,
     code: cfg.code,
@@ -167,6 +188,7 @@ for (const cfg of CONFIGS) {
       isPrimary: i === 0,
     })),
     attributeIds,
+    allowedAttributeValueIds,
     wholesalePrice: cfg.basePrice,
     moq: cfg.moq,
     status: 'active',

@@ -8,7 +8,6 @@ import { SearchInput } from '@/components/ui/SearchInput'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { useAppData } from '@/context/AppDataContext'
 import { useToast } from '@/context/ToastContext'
-import { ATTRIBUTES } from '@/data/attributes'
 import { imagesForCategory } from '@/data/images'
 import type { Category } from '@/types'
 import { slugify } from '@/utils/format'
@@ -125,7 +124,7 @@ export default function CategoriesPage() {
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-stone-600">Applicable Attributes</label>
             <div className="flex flex-wrap gap-2">
-              {ATTRIBUTES.map((attr) => (
+              {data.attributes.map((attr) => (
                 <button
                   key={attr.id}
                   onClick={() => setAttrIds((prev) => prev.includes(attr.id) ? prev.filter((a) => a !== attr.id) : [...prev, attr.id])}

@@ -4,7 +4,7 @@ import { imagesForCategory } from './images'
 export const CATEGORIES: Category[] = [
   {
     id: 'cat-kurtis',
-    name: 'Kurtis',
+    name: 'Kurti',
     slug: 'kurtis',
     imageUrl: imagesForCategory('kurtis', 1)[0],
     attributeIds: ['attr-fabric', 'attr-color', 'attr-size', 'attr-pattern', 'attr-work'],

@@ -20,22 +20,22 @@ interface AppDataContextValue {
   data: AppData
   // products
   addProduct: (product: Product, variants: ProductVariant[]) => Promise<string>
-  updateProduct: (id: string, patch: Partial<Product>) => void
+  updateProduct: (id: string, patch: Partial<Product>) => Promise<void> | void
   archiveProduct: (id: string) => void
   duplicateProduct: (id: string) => void
-  addVariant: (variant: ProductVariant) => void
+  addVariant: (variant: ProductVariant) => Promise<void> | void
   updateVariant: (id: string, patch: Partial<ProductVariant>) => void
   adjustStock: (variantId: string, type: 'add' | 'remove' | 'set', quantity: number, reason: InventoryReason, note?: string) => void
   incrementProductViews: (id: string) => void
   // categories
-  addCategory: (category: Category) => void
-  updateCategory: (id: string, patch: Partial<Category>) => void
-  deleteCategory: (id: string) => void
+  addCategory: (category: Category) => Promise<void> | void
+  updateCategory: (id: string, patch: Partial<Category>) => Promise<void> | void
+  deleteCategory: (id: string) => Promise<void> | void
   // attributes
-  addAttribute: (attribute: Attribute) => void
-  updateAttribute: (id: string, patch: Partial<Attribute>) => void
-  addAttributeValue: (attributeId: string, value: AttributeValue) => void
-  deleteAttributeValue: (attributeId: string, valueId: string) => void
+  addAttribute: (attribute: Attribute) => Promise<void> | void
+  updateAttribute: (id: string, patch: Partial<Attribute>) => Promise<void> | void
+  addAttributeValue: (attributeId: string, value: AttributeValue) => Promise<void> | void
+  deleteAttributeValue: (attributeId: string, valueId: string) => Promise<void>
   // customers
   addCustomer: (customer: Customer) => void
   updateCustomer: (id: string, patch: Partial<Customer>) => void
@@ -71,7 +71,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       const match = window.location.pathname.match(/^\/catalogue\/([^/]+)/)
       if (!match) { setData(emptyData()); return }
       const publicCatalogue = await apiClient.get<any>(`/api/v1/public/catalogues/${encodeURIComponent(match[1])}`)
-      const products = publicCatalogue.products.map((product: any) => ({ id: product.id, code: product.code, name: product.name, categoryId: '', description: product.description ?? '', media: product.media.map((media: any, index: number) => ({ id: `${product.id}-${index}`, url: media.url, isPrimary: media.primary })), attributeIds: [], wholesalePrice: Number(product.variants[0]?.price ?? 0), moq: product.moq ?? 1, status: 'active' as const, views: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }))
+      const products = publicCatalogue.products.map((product: any) => ({ id: product.id, code: product.code, name: product.name, categoryId: '', description: product.description ?? '', media: product.media.map((media: any, index: number) => ({ id: `${product.id}-${index}`, url: media.url, isPrimary: media.primary })), attributeIds: [], allowedAttributeValueIds: [], wholesalePrice: Number(product.variants[0]?.price ?? 0), moq: product.moq ?? 1, status: 'active' as const, views: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }))
       const variants = publicCatalogue.products.flatMap((product: any) => product.variants.map((variant: any) => ({ id: variant.id, productId: product.id, sku: variant.sku, attributes: Object.fromEntries(Object.entries(variant.attributes ?? {}).map(([key, value]) => [key.toLowerCase(), value])) as Record<string, string>, price: Number(variant.price ?? 0), stock: variant.stock ?? (variant.available === false ? 0 : 1), reserved: 0, status: 'active' as const, lowStockThreshold: 10 })))
       setData((current) => ({ ...current, products, variants, catalogues: [{ id: match[1], slug: match[1], name: publicCatalogue.title, message: publicCatalogue.message ?? undefined, customerId: '', items: products.map((product: Product) => ({ productId: product.id, variantFilter: {}, allVariants: true })), settings: { showWholesalePrice: publicCatalogue.settings.showPrice, showExactStock: publicCatalogue.settings.showExactStock, showAvailability: publicCatalogue.settings.showAvailability, showMOQ: publicCatalogue.settings.showMOQ, allowProductSelection: publicCatalogue.settings.allowSelection, allowEnquiry: publicCatalogue.settings.allowEnquiry, allowImageDownload: publicCatalogue.settings.allowImageDownload, priceAdjustmentType: 'none', priceAdjustmentValue: 0, pinProtected: false, expiry: 'never' }, status: 'active', views: 0, uniqueVisitors: 0, createdAt: new Date().toISOString(), expiresAt: publicCatalogue.expiresAt ?? null }] }))
       return
@@ -88,13 +88,28 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, [refresh])
 
   const addProduct = useCallback(async (product: Product, variants: ProductVariant[]) => {
-    const attributeValueIds = (attributes: Record<string, string>) => Object.values(attributes).flatMap((value) => data.attributes.flatMap((attribute) => attribute.values.filter((item) => item.value === value).map((item) => item.id)))
-    const created = await apiClient.post<any>('/api/v1/products', { categoryId: product.categoryId, code: product.code, name: product.name, description: product.description, basePrice: product.wholesalePrice, moq: product.moq, status: product.status.toUpperCase(), attributeIds: product.attributeIds, media: product.media.filter((media: any) => media.objectKey).map((media: any, sortOrder: number) => ({ objectKey: media.objectKey, url: media.url, mimeType: media.mimeType ?? 'image/jpeg', primary: media.isPrimary, sortOrder })), variants: variants.map((variant) => ({ sku: variant.sku, price: variant.price, stock: variant.stock, attributeValueIds: attributeValueIds(variant.attributes) })) })
+    const attributeValueIds = (attributes: Record<string, string>) => Object.entries(attributes).flatMap(([key, value]) => {
+      const attribute = data.attributes.find((item) => item.name.toLowerCase() === key.toLowerCase() || (key === 'waist' && item.name.toLowerCase() === 'waist size'))
+      return attribute?.values.filter((item) => item.value === value).map((item) => item.id) ?? []
+    })
+    const created = await apiClient.post<any>('/api/v1/products', { categoryId: product.categoryId, code: product.code, name: product.name, description: product.description, basePrice: product.wholesalePrice, moq: product.moq, status: product.status.toUpperCase(), attributeIds: product.attributeIds, allowedAttributeValueIds: product.allowedAttributeValueIds, media: product.media.filter((media: any) => media.objectKey).map((media: any, sortOrder: number) => ({ objectKey: media.objectKey, url: media.url, mimeType: media.mimeType ?? 'image/jpeg', primary: media.isPrimary, sortOrder })), variants: variants.map((variant) => ({ sku: variant.sku, price: variant.price, stock: variant.stock, attributeValueIds: attributeValueIds(variant.attributes) })) })
     await refresh()
     return created.id as string
   }, [data.attributes, refresh])
 
-  const updateProduct = useCallback(async (id: string, patch: Partial<Product>) => { await apiClient.patch(`/api/v1/products/${id}`, { ...(patch.name !== undefined ? { name: patch.name } : {}), ...(patch.description !== undefined ? { description: patch.description } : {}), ...(patch.wholesalePrice !== undefined ? { basePrice: patch.wholesalePrice } : {}), ...(patch.moq !== undefined ? { moq: patch.moq } : {}), ...(patch.status !== undefined ? { status: patch.status.toUpperCase() } : {}) }); await refresh() }, [refresh])
+  const updateProduct = useCallback(async (id: string, patch: Partial<Product>) => {
+    await apiClient.patch(`/api/v1/products/${id}`, {
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.description !== undefined ? { description: patch.description } : {}),
+      ...(patch.wholesalePrice !== undefined ? { basePrice: patch.wholesalePrice } : {}),
+      ...(patch.moq !== undefined ? { moq: patch.moq } : {}),
+      ...(patch.status !== undefined ? { status: patch.status.toUpperCase() } : {}),
+      ...(patch.categoryId !== undefined ? { categoryId: patch.categoryId } : {}),
+      ...(patch.attributeIds !== undefined ? { attributeIds: patch.attributeIds } : {}),
+      ...(patch.allowedAttributeValueIds !== undefined ? { allowedAttributeValueIds: patch.allowedAttributeValueIds } : {}),
+    })
+    await refresh()
+  }, [refresh])
 
   const archiveProduct = useCallback(async (id: string) => { await apiClient.patch(`/api/v1/products/${id}`, { status: 'ARCHIVED' }); await refresh() }, [refresh])
 
@@ -119,9 +134,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const addVariant = useCallback((variant: ProductVariant) => {
-    setData((d) => ({ ...d, variants: [...d.variants, variant] }))
-  }, [])
+  const addVariant = useCallback(async (variant: ProductVariant) => {
+    const attributeValueIds = Object.entries(variant.attributes).flatMap(([key, value]) => {
+      const attribute = data.attributes.find((item) => item.name.toLowerCase() === key.toLowerCase() || (key === 'waist' && item.name.toLowerCase() === 'waist size'))
+      return attribute?.values.filter((item) => item.value === value).map((item) => item.id) ?? []
+    })
+    await apiClient.post(`/api/v1/products/${variant.productId}/variants`, { sku: variant.sku, price: variant.price, stock: variant.stock, attributeValueIds })
+    await refresh()
+  }, [data.attributes, refresh])
 
   const updateVariant = useCallback((id: string, patch: Partial<ProductVariant>) => {
     setData((d) => ({ ...d, variants: d.variants.map((v) => (v.id === id ? { ...v, ...patch } : v)) }))
@@ -168,36 +188,36 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setData((d) => ({ ...d, products: d.products.map((p) => (p.id === id ? { ...p, views: p.views + 1 } : p)) }))
   }, [])
 
-  const addCategory = useCallback((category: Category) => {
-    setData((d) => ({ ...d, categories: [category, ...d.categories] }))
-  }, [])
-  const updateCategory = useCallback((id: string, patch: Partial<Category>) => {
-    setData((d) => ({ ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))
-  }, [])
-  const deleteCategory = useCallback((id: string) => {
-    setData((d) => ({ ...d, categories: d.categories.filter((c) => c.id !== id) }))
-  }, [])
+  const addCategory = useCallback(async (category: Category) => {
+    await apiClient.post('/api/v1/categories', { name: category.name, slug: category.slug, status: category.status.toUpperCase(), attributeIds: category.attributeIds })
+    await refresh()
+  }, [refresh])
+  const updateCategory = useCallback(async (id: string, patch: Partial<Category>) => {
+    await apiClient.patch(`/api/v1/categories/${id}`, { ...(patch.name !== undefined ? { name: patch.name } : {}), ...(patch.slug !== undefined ? { slug: patch.slug } : {}), ...(patch.status !== undefined ? { status: patch.status.toUpperCase() } : {}), ...(patch.attributeIds !== undefined ? { attributeIds: patch.attributeIds } : {}) })
+    await refresh()
+  }, [refresh])
+  const deleteCategory = useCallback(async (id: string) => {
+    await apiClient.delete(`/api/v1/categories/${id}`).catch(() => undefined)
+    await refresh()
+  }, [refresh])
 
-  const addAttribute = useCallback((attribute: Attribute) => {
-    setData((d) => ({ ...d, attributes: [attribute, ...d.attributes] }))
-  }, [])
-  const updateAttribute = useCallback((id: string, patch: Partial<Attribute>) => {
-    setData((d) => ({ ...d, attributes: d.attributes.map((a) => (a.id === id ? { ...a, ...patch } : a)) }))
-  }, [])
-  const addAttributeValue = useCallback((attributeId: string, value: AttributeValue) => {
-    setData((d) => ({
-      ...d,
-      attributes: d.attributes.map((a) => (a.id === attributeId ? { ...a, values: [...a.values, value] } : a)),
-    }))
-  }, [])
-  const deleteAttributeValue = useCallback((attributeId: string, valueId: string) => {
-    setData((d) => ({
-      ...d,
-      attributes: d.attributes.map((a) =>
-        a.id === attributeId ? { ...a, values: a.values.filter((v) => v.id !== valueId) } : a,
-      ),
-    }))
-  }, [])
+  const addAttribute = useCallback(async (attribute: Attribute) => {
+    const kind = attribute.type === 'color' ? 'COLOR' : attribute.type === 'size' ? 'SIZE' : 'TEXT'
+    await apiClient.post('/api/v1/attributes', { name: attribute.name, kind, values: attribute.values.map((item) => ({ value: item.value, hex: item.hex })) })
+    await refresh()
+  }, [refresh])
+  const updateAttribute = useCallback(async (id: string, patch: Partial<Attribute>) => {
+    await apiClient.patch(`/api/v1/attributes/${id}`, { ...(patch.name !== undefined ? { name: patch.name } : {}), ...(patch.type !== undefined ? { kind: patch.type === 'color' ? 'COLOR' : patch.type === 'size' ? 'SIZE' : 'TEXT' } : {}) })
+    await refresh()
+  }, [refresh])
+  const addAttributeValue = useCallback(async (attributeId: string, value: AttributeValue) => {
+    await apiClient.post(`/api/v1/attributes/${attributeId}/values`, { value: value.value, hex: value.hex })
+    await refresh()
+  }, [refresh])
+  const deleteAttributeValue = useCallback(async (attributeId: string, valueId: string) => {
+    await apiClient.delete(`/api/v1/attributes/${attributeId}/values/${valueId}`)
+    await refresh()
+  }, [refresh])
 
   const addCustomer = useCallback(async (customer: Customer) => { await apiClient.post('/api/v1/customers', { businessName: customer.businessName, contactPerson: customer.contactPerson, phone: customer.phone, whatsapp: customer.whatsapp || undefined, email: customer.email || undefined, city: customer.city || undefined, state: customer.state || undefined, type: customer.type.toUpperCase(), gstNumber: customer.gstNumber, notes: customer.notes, status: customer.status.toUpperCase() }); await refresh() }, [refresh])
   const updateCustomer = useCallback(async (id: string, patch: Partial<Customer>) => { await apiClient.patch(`/api/v1/customers/${id}`, { ...patch, ...(patch.type ? { type: patch.type.toUpperCase() } : {}), ...(patch.status ? { status: patch.status.toUpperCase() } : {}) }); await refresh() }, [refresh])

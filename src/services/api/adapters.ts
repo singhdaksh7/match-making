@@ -7,17 +7,23 @@ export function backendUserToFrontendUser(value: any): User {
   return { id: value.id, name: value.name, email: value.email, role: value.role === 'OWNER' || value.role === 'ADMIN' ? 'owner' : 'staff' }
 }
 export function backendCategoryToFrontend(value: any): Category {
-  return { id: value.id, name: value.name, slug: value.slug, imageUrl: '', attributeIds: value.categoryAttributes?.map((x: any) => x.attributeId) ?? [], status: value.status === 'INACTIVE' ? 'inactive' : 'active', createdAt: date(value.createdAt) }
+  return { id: value.id, name: value.name, slug: value.slug, imageUrl: value.imageUrl ?? '', attributeIds: value.categoryAttributes?.map((x: any) => x.attributeId) ?? value.attributeIds ?? [], status: value.status === 'INACTIVE' ? 'inactive' : 'active', createdAt: date(value.createdAt) }
 }
 export function backendAttributeToFrontend(value: any): Attribute {
-  return { id: value.id, name: value.name, type: value.kind.toLowerCase() === 'select' ? 'text' : value.kind.toLowerCase(), values: (value.values ?? []).map((x: any) => ({ id: x.id, value: x.value, hex: x.hex })) }
+  const kind = String(value.kind ?? value.type ?? 'text').toLowerCase()
+  return { id: value.id, name: value.name, type: kind === 'select' || kind === 'text' ? 'text' : kind === 'size' ? 'size' : 'color', values: (value.values ?? []).map((x: any) => ({ id: x.id, value: x.value, hex: x.hex })) }
+}
+function attributeKey(name: string) {
+  const lower = name.toLowerCase()
+  if (lower === 'waist size') return 'waist'
+  return lower
 }
 export function backendVariantToFrontend(value: any, productId: string): ProductVariant {
   const links = value.attributeValues ?? []
-  return { id: value.id, productId, sku: value.sku, attributes: Object.fromEntries(links.map((x: any) => [x.attributeValue?.attribute?.name ?? x.attribute?.name ?? '', x.attributeValue?.value ?? x.value])), price: Number(value.price), stock: value.stock, reserved: value.reserved ?? 0, status: value.status === 'INACTIVE' ? 'inactive' : 'active', lowStockThreshold: 10 }
+  return { id: value.id, productId, sku: value.sku, attributes: Object.fromEntries(links.map((x: any) => [attributeKey(x.attributeValue?.attribute?.name ?? x.attribute?.name ?? ''), x.attributeValue?.value ?? x.value])), price: Number(value.price), stock: value.stock, reserved: value.reserved ?? 0, status: value.status === 'INACTIVE' ? 'inactive' : 'active', lowStockThreshold: 10 }
 }
 export function backendProductToFrontend(value: any): Product {
-  return { id: value.id, code: value.code, name: value.name, categoryId: value.categoryId, description: value.description ?? '', media: (value.media ?? []).map((x: any) => ({ id: x.id, url: x.url, isPrimary: x.primary })), attributeIds: (value.attributes ?? []).map((x: any) => x.attributeId), wholesalePrice: Number(value.basePrice), moq: value.moq, status: status(value.status) as Product['status'], views: value.views ?? 0, createdAt: date(value.createdAt), updatedAt: date(value.updatedAt) }
+  return { id: value.id, code: value.code, name: value.name, categoryId: value.categoryId, description: value.description ?? '', media: (value.media ?? []).map((x: any) => ({ id: x.id, url: x.url, isPrimary: Boolean(x.primary ?? x.isPrimary) })), attributeIds: (value.attributes ?? []).map((x: any) => x.attributeId), allowedAttributeValueIds: (value.allowedValues ?? []).map((x: any) => x.attributeValueId), wholesalePrice: Number(value.basePrice ?? value.wholesalePrice ?? 0), moq: value.moq, status: status(value.status) as Product['status'], views: value.views ?? 0, createdAt: date(value.createdAt), updatedAt: date(value.updatedAt) }
 }
 export function backendCustomerToFrontend(value: any): Customer {
   return { id: value.id, businessName: value.businessName, contactPerson: value.contactPerson, phone: value.phone, whatsapp: value.whatsapp ?? value.phone, email: value.email ?? '', city: value.city ?? '', state: value.state ?? '', type: `${value.type[0]}${value.type.slice(1).toLowerCase()}` as Customer['type'], gstNumber: value.gstNumber, notes: value.notes, status: value.status === 'INACTIVE' ? 'inactive' : 'active', createdAt: date(value.createdAt) }

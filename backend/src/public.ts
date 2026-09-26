@@ -5,7 +5,7 @@ import { asyncRoute, HttpError } from './http.js'
 import crypto from 'node:crypto'
 export const publicRouter=Router()
 const liveCatalogue=async(token:string)=>{
-  const c=await prisma.catalogue.findUnique({where:{token},include:{items:{include:{product:{include:{media:true,variants:{include:{attributeValues:{include:{attributeValue:{include:{attribute:true}}}}}}}}}}}})
+  const c=await prisma.catalogue.findUnique({where:{token},include:{items:{include:{product:{include:{media:true,allowedValues:true,variants:{include:{attributeValues:{include:{attributeValue:{include:{attribute:true}}}}}}}}}}}})
   if(!c||c.status!=='ACTIVE'||(c.expiresAt&&c.expiresAt<new Date()))throw new HttpError(404,'Catalogue is unavailable','CATALOGUE_UNAVAILABLE')
   return c
 }
@@ -15,7 +15,7 @@ const safe=(c:Awaited<ReturnType<typeof liveCatalogue>>)=>({
   products:c.items.map(i=>({
     id:i.product.id,code:i.product.code,name:i.product.name,description:i.product.description,moq:c.showMOQ?i.product.moq:undefined,
     media:i.product.media.map(m=>({url:m.url,primary:m.primary})),
-    variants:(i.variantId?i.product.variants.filter(v=>v.id===i.variantId):i.product.variants).map(v=>({
+    variants:(i.variantId?i.product.variants.filter(v=>v.id===i.variantId):i.product.variants).filter(v=>v.attributeValues.every(a=>!i.product.allowedValues?.length||i.product.allowedValues.some(row=>row.attributeValueId===a.attributeValueId))).map(v=>({
       id:v.id,sku:v.sku,price:c.showPrice ? Number(i.customPrice ?? (Number(v.price) * (1 + Number(c.priceAdjustmentPct) / 100))) : undefined,
       stock:c.showExactStock?v.stock:undefined,available:c.showAvailability?v.stock-v.reserved>0:undefined,
       attributes:Object.fromEntries(v.attributeValues.map(a=>[a.attributeValue.attribute.name,a.attributeValue.value]))

@@ -31,7 +31,7 @@ export function ColorSwatch({ hex, name, size = 'md', selected, showLabel, onCli
       type="button"
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+        'flex min-h-11 items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium transition-colors',
         selected ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300',
         !onClick && 'cursor-default',
       )}
