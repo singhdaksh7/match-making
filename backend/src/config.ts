@@ -6,6 +6,10 @@ export const config = {
   uploadDir: process.env.UPLOAD_DIR ?? 'uploads',
   uploadMaxBytes: Number(process.env.UPLOAD_MAX_BYTES ?? 5 * 1024 * 1024),
   uploadProvider: process.env.UPLOAD_PROVIDER ?? 'local',
+  r2: {
+    accountId: process.env.R2_ACCOUNT_ID, accessKeyId: process.env.R2_ACCESS_KEY_ID, secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    bucket: process.env.R2_BUCKET_NAME, publicBaseUrl: process.env.R2_PUBLIC_BASE_URL, endpoint: process.env.R2_ENDPOINT,
+  },
   // Keep production sessions HTTPS-only, while allowing the explicitly local
   // production-like HTTP stack to exercise authenticated browser flows.
   cookieSecure: process.env.COOKIE_SECURE === undefined ? process.env.NODE_ENV === 'production' : process.env.COOKIE_SECURE === 'true',

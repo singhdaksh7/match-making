@@ -30,3 +30,7 @@ If you are developing a production application, we recommend enabling type-aware
 ```
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+## Deployment
+
+See [DEPLOY_NEW_VPS.md](DEPLOY_NEW_VPS.md) (fresh Ubuntu VPS, Docker only), [DEPLOYMENT.md](DEPLOYMENT.md), [ENVIRONMENT.md](ENVIRONMENT.md) and [BACKUP_RESTORE.md](BACKUP_RESTORE.md). Owner account: `npm run admin:create`.

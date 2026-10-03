@@ -1,0 +1,19 @@
+# Caddy for docker-compose.standalone.yml. APP_HOST is the public hostname (a real
+# domain, or e.g. vastraa.<VPS-IP>.sslip.io). Caddy obtains and renews the HTTPS
+# certificate automatically; ports 80 and 443 must be reachable from the internet.
+{$APP_HOST} {
+	encode zstd gzip
+
+	# Multi-image uploads: keep in sync with client_max_body_size in nginx.conf.
+	request_body {
+		max_size 25MB
+	}
+
+	handle /api/* {
+		reverse_proxy vastraa-api:4000
+	}
+
+	handle {
+		reverse_proxy vastraa-web:8080
+	}
+}

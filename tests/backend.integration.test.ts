@@ -1,10 +1,38 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import type { AddressInfo } from 'node:net'
-import { rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { PutObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import argon2 from 'argon2'
 import { AttributeKind, CustomerType, PrismaClient, RecordStatus, Role } from '@prisma/client'
 import { app } from '../backend/src/app.js'
+import { createStorageProvider, setStorageProvider, StorageError, type StorageProvider } from '../backend/src/storage/index.js'
+import { CloudflareR2StorageProvider } from '../backend/src/storage/r2.js'
+import { LocalStorageProvider } from '../backend/src/storage/local.js'
+import { migrateStorage } from '../backend/src/tools/migrateStorageToR2.js'
+
+/** In-memory storage used for every HTTP test: no filesystem, no network, can be told to fail. */
+class FakeStorage implements StorageProvider {
+  readonly name = 'fake'
+  objects = new Map<string, { body: Buffer; contentType: string }>()
+  uploads: string[] = []
+  deletes: string[] = []
+  failUpload = false
+  failDelete = false
+  onUpload?: (key: string) => Promise<void>
+  async upload({ key, body, contentType }: { key: string; body: Buffer; contentType: string }) {
+    if (this.failUpload) throw new StorageError('boom', 'upload')
+    this.objects.set(key, { body, contentType }); this.uploads.push(key)
+    if (this.onUpload) await this.onUpload(key)
+  }
+  async delete(key: string) { this.deletes.push(key); if (this.failDelete) throw new StorageError('boom', 'delete'); this.objects.delete(key) }
+  async exists(key: string) { return this.objects.has(key) }
+  getPublicUrl(key: string) { return `/api/v1/media/${key}` }
+}
+const fake = new FakeStorage()
+setStorageProvider(fake)
 
 const databaseUrl = process.env.DATABASE_URL ?? ''
 if (!databaseUrl.includes('/vastraa_test')) throw new Error('Refusing to run integration tests outside the dedicated vastraa_test database.')
@@ -209,3 +237,345 @@ test('tenant isolation still hides K-101 from the other business', async () => {
   cookie = prior
 })
 
+// ======================= attribute-value images & storage providers =======================
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(32, 1)])
+const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x20, 0, 0, 0]), Buffer.from('WEBP'), Buffer.alloc(16)])
+type TestFile = { name?: string; type: string; bytes: Buffer }
+const json = { 'content-type': 'application/json' }
+
+async function uploadFiles(pathname: string, files: TestFile[], field = 'files') {
+  const form = new FormData()
+  for (const f of files) form.append(field, new Blob([new Uint8Array(f.bytes)], { type: f.type }), f.name ?? 'upload.bin')
+  return request(pathname, { method: 'POST', body: form }, true)
+}
+const imgPath = (pid: string, avid: string) => `/api/v1/products/${pid}/attribute-values/${avid}/images`
+const valueId = async (attribute: string, value: string) => (await prisma.attributeValue.findFirstOrThrow({ where: { value, attribute: { name: attribute } } })).id
+const attributeId = async (name: string) => (await prisma.attribute.findFirstOrThrow({ where: { name } })).id
+const businessIdOf = async () => (await prisma.business.findFirstOrThrow({ where: { slug: 'vastraa-test' } })).id
+const asOther = async <T>(fn: () => Promise<T>) => { const prior = cookie; await login('other@vastraa.test'); try { return await fn() } finally { cookie = prior } }
+let k104 = ''
+
+test('supportsImages defaults to false and can be toggled on an attribute (and blocks nothing yet)', async () => {
+  const color = await attributeId('Color')
+  const before = (await (await request('/api/v1/attributes', {}, true)).json()).data.find((a: { id: string }) => a.id === color)
+  assert.equal(before.supportsImages, false)
+  const patched = await request(`/api/v1/attributes/${color}`, { method: 'PATCH', headers: json, body: JSON.stringify({ supportsImages: true }) }, true)
+  assert.equal(patched.status, 200)
+  assert.equal((await patched.json()).data.supportsImages, true)
+  const created = await request('/api/v1/attributes', { method: 'POST', headers: json, body: JSON.stringify({ name: 'Sleeve2', kind: 'TEXT', supportsImages: true, values: [{ value: 'Short' }] }) }, true)
+  assert.equal(created.status, 201)
+  assert.equal((await created.json()).data.supportsImages, true)
+})
+
+test('attribute-value image upload accepts multiple files and appends with sortOrder', async () => {
+  const black = await valueId('Color', 'Black'), biz = await businessIdOf()
+  const first = await uploadFiles(imgPath(productId, black), [{ type: 'image/png', bytes: PNG, name: '../../evil name.png' }, { type: 'image/jpeg', bytes: JPEG }])
+  assert.equal(first.status, 201)
+  const body = (await first.json()).data as { id: string; url: string; sortOrder: number; objectKey?: string }[]
+  assert.deepEqual(body.map((i) => i.sortOrder), [0, 1])
+  assert.equal(body.every((i) => i.objectKey === undefined), true)
+  const rows = await prisma.productAttributeValueImage.findMany({ where: { productId, attributeValueId: black }, orderBy: { sortOrder: 'asc' } })
+  assert.equal(rows.length, 2)
+  assert.match(rows[0].objectKey, new RegExp(`^business/${biz}/products/${productId}/attributes/${black}/[0-9a-f-]{36}\\.png$`))
+  assert.match(rows[1].objectKey, /\.jpg$/)
+  assert.equal(rows.some((r) => r.objectKey.includes('evil')), false)
+  assert.equal(body[0].url, `/api/v1/media/${rows[0].objectKey}`)
+  assert.equal(fake.objects.has(rows[0].objectKey), true)
+  const more = await uploadFiles(imgPath(productId, black), [{ type: 'image/webp', bytes: WEBP }])
+  assert.equal(more.status, 201)
+  assert.equal((await more.json()).data[0].sortOrder, 2)
+  const maroon = await valueId('Color', 'Maroon')
+  assert.equal((await uploadFiles(imgPath(productId, maroon), [{ type: 'image/png', bytes: PNG }])).status, 201)
+})
+
+test('admin product payload exposes ordered images per allowed value and supportsImages', async () => {
+  const data = (await (await request(`/api/v1/products/${productId}`, {}, true)).json()).data
+  const black = data.allowedValues.find((r: { attributeValue: { value: string } }) => r.attributeValue.value === 'Black')
+  assert.equal(black.attributeValue.attribute.supportsImages, true)
+  assert.deepEqual(black.images.map((i: { sortOrder: number }) => i.sortOrder), [0, 1, 2])
+  assert.equal(data.allowedValues.find((r: { attributeValue: { value: string } }) => r.attributeValue.value === 'XL').images.length, 0)
+  assert.equal(data.allowedValues.every((r: { images: { objectKey?: string; url: string }[] }) => r.images.every((i) => i.objectKey === undefined && i.url.startsWith('/api/v1/media/business/'))), true)
+})
+
+test('upload is rejected for an attribute with supportsImages=false (Size)', async () => {
+  const r = await uploadFiles(imgPath(productId, await valueId('Size', 'XL')), [{ type: 'image/png', bytes: PNG }])
+  assert.equal(r.status, 409); assert.match((await r.json()).error.message, /does not support images/)
+})
+test('upload is rejected for a value not enabled on the product', async () => {
+  const r = await uploadFiles(imgPath(productId, await valueId('Color', 'Navy')), [{ type: 'image/png', bytes: PNG }])
+  assert.equal(r.status, 409); assert.match((await r.json()).error.message, /not enabled/)
+})
+test('upload is rejected for a value whose attribute is not assigned to the category, and for unknown ids', async () => {
+  const sleeve = await prisma.attribute.create({ data: { businessId: await businessIdOf(), name: 'Neck', kind: 'TEXT', supportsImages: true, values: { create: [{ value: 'Round' }] } }, include: { values: true } })
+  const r = await uploadFiles(imgPath(productId, sleeve.values[0].id), [{ type: 'image/png', bytes: PNG }])
+  assert.equal(r.status, 400); assert.match((await r.json()).error.message, /not assigned/)
+  assert.equal((await uploadFiles(imgPath(productId, 'nope'), [{ type: 'image/png', bytes: PNG }])).status, 404)
+})
+test('cross-tenant image upload, delete and reorder are 404', async () => {
+  const black = await valueId('Color', 'Black')
+  const image = await prisma.productAttributeValueImage.findFirstOrThrow({ where: { productId, attributeValueId: black } })
+  const before = fake.uploads.length
+  await asOther(async () => {
+    assert.equal((await uploadFiles(imgPath(productId, black), [{ type: 'image/png', bytes: PNG }])).status, 404)
+    assert.equal((await request(`${imgPath(productId, black)}/${image.id}`, { method: 'DELETE' }, true)).status, 404)
+    assert.equal((await request(`${imgPath(productId, black)}/order`, { method: 'PUT', headers: json, body: JSON.stringify({ imageIds: [] }) }, true)).status, 404)
+  })
+  assert.equal(fake.uploads.length, before)
+  assert.equal(await prisma.productAttributeValueImage.count({ where: { id: image.id } }), 1)
+})
+test('unauthenticated image upload is 401', async () => {
+  const r = await request(imgPath(productId, await valueId('Color', 'Black')), { method: 'POST', body: new FormData() })
+  assert.equal(r.status, 401)
+})
+test('invalid upload types are rejected with 400 and nothing is stored', async () => {
+  const black = await valueId('Color', 'Black'), count = await prisma.productAttributeValueImage.count(), uploads = fake.uploads.length
+  assert.equal((await uploadFiles(imgPath(productId, black), [{ type: 'text/plain', bytes: Buffer.from('hello') }])).status, 400)
+  assert.equal((await uploadFiles(imgPath(productId, black), [{ type: 'image/png', bytes: JPEG }])).status, 400) // magic bytes mismatch
+  assert.equal((await uploadFiles(imgPath(productId, black), [{ type: 'image/png', bytes: Buffer.from('<svg/>') }])).status, 400)
+  assert.equal((await uploadFiles(imgPath(productId, black), [{ type: 'image/png', bytes: PNG }, { type: 'image/gif', bytes: Buffer.from('nope') }])).status, 400) // one bad file rejects all
+  assert.equal((await uploadFiles(imgPath(productId, black), [{ type: 'image/png', bytes: PNG }], 'wrong')).status, 400)
+  assert.equal((await request(imgPath(productId, black), { method: 'POST', body: new FormData() }, true)).status, 400)
+  assert.equal(await prisma.productAttributeValueImage.count(), count); assert.equal(fake.uploads.length, uploads)
+})
+test('oversized upload is rejected with 413', async () => {
+  const r = await uploadFiles(imgPath(productId, await valueId('Color', 'Black')), [{ type: 'image/png', bytes: Buffer.concat([PNG, Buffer.alloc(4096)]) }])
+  assert.equal(r.status, 413)
+})
+test('storage upload failure returns 502 and creates no database row', async () => {
+  const black = await valueId('Color', 'Black'), count = await prisma.productAttributeValueImage.count()
+  fake.failUpload = true
+  try {
+    const r = await uploadFiles(imgPath(productId, black), [{ type: 'image/png', bytes: PNG }])
+    assert.equal(r.status, 502); const err = (await r.json()).error
+    assert.equal(err.code, 'STORAGE_UNAVAILABLE'); assert.doesNotMatch(err.message, /boom/)
+  } finally { fake.failUpload = false }
+  assert.equal(await prisma.productAttributeValueImage.count(), count)
+})
+test('database failure after upload triggers compensating storage delete', async () => {
+  const created = await request('/api/v1/products', { method: 'POST', headers: json, body: JSON.stringify({
+    categoryId: (await prisma.product.findFirstOrThrow({ where: { id: productId } })).categoryId, code: 'K-104', name: 'Image test', basePrice: 100, moq: 1,
+    allowedAttributeValueIds: [await valueId('Color', 'Black'), await valueId('Color', 'Maroon')],
+  }) }, true)
+  assert.equal(created.status, 201); k104 = (await created.json()).data.id
+  const black = await valueId('Color', 'Black')
+  fake.onUpload = async () => { await prisma.productAttributeValue.deleteMany({ where: { productId: k104, attributeValueId: black } }) } // value disappears mid-request
+  fake.deletes = []
+  try {
+    const r = await uploadFiles(imgPath(k104, black), [{ type: 'image/png', bytes: PNG }])
+    assert.equal(r.status, 409)
+    const key = fake.uploads[fake.uploads.length - 1]
+    assert.deepEqual(fake.deletes, [key]); assert.equal(fake.objects.has(key), false)
+  } finally { fake.onUpload = undefined }
+  assert.equal(await prisma.productAttributeValueImage.count({ where: { productId: k104 } }), 0)
+  await prisma.productAttributeValue.create({ data: { productId: k104, attributeValueId: black } })
+})
+test('disabling supportsImages on an attribute that has images is blocked with 409 and a count', async () => {
+  const r = await request(`/api/v1/attributes/${await attributeId('Color')}`, { method: 'PATCH', headers: json, body: JSON.stringify({ supportsImages: false }) }, true)
+  assert.equal(r.status, 409); assert.match((await r.json()).error.message, /\d+ attribute-value images? still exist/)
+  assert.equal((await prisma.attribute.findFirstOrThrow({ where: { name: 'Color' } })).supportsImages, true)
+})
+test('alt text can be updated and images reordered (exact id set required)', async () => {
+  const black = await valueId('Color', 'Black')
+  const ids = (await prisma.productAttributeValueImage.findMany({ where: { productId, attributeValueId: black }, orderBy: { sortOrder: 'asc' } })).map((i) => i.id)
+  const alt = await request(`${imgPath(productId, black)}/${ids[0]}`, { method: 'PATCH', headers: json, body: JSON.stringify({ altText: 'Front view' }) }, true)
+  assert.equal(alt.status, 200); assert.equal((await alt.json()).data.altText, 'Front view')
+  const reversed = [...ids].reverse()
+  const ok = await request(`${imgPath(productId, black)}/order`, { method: 'PUT', headers: json, body: JSON.stringify({ imageIds: reversed }) }, true)
+  assert.equal(ok.status, 200)
+  assert.deepEqual((await ok.json()).data.map((i: { id: string }) => i.id), reversed)
+  for (const bad of [reversed.slice(1), [...reversed, 'extra'], [reversed[0], reversed[0], reversed[1]]]) {
+    assert.equal((await request(`${imgPath(productId, black)}/order`, { method: 'PUT', headers: json, body: JSON.stringify({ imageIds: bad }) }, true)).status, 400)
+  }
+  const maroonImage = await prisma.productAttributeValueImage.findFirstOrThrow({ where: { productId, attributeValueId: await valueId('Color', 'Maroon') } })
+  assert.equal((await request(`${imgPath(productId, black)}/order`, { method: 'PUT', headers: json, body: JSON.stringify({ imageIds: [...reversed.slice(1), maroonImage.id] }) }, true)).status, 400)
+})
+test('public catalogue returns attributeImages only for enabled supportsImages values with images, without storage internals', async () => {
+  const res = await request('/api/v1/public/catalogues/public-test'); assert.equal(res.status, 200)
+  const raw = await res.text(); const product = JSON.parse(raw).data.products[0]
+  assert.deepEqual(product.attributeImages.map((g: { value: { value: string } }) => g.value.value).sort(), ['Black', 'Maroon'])
+  const black = product.attributeImages.find((g: { value: { value: string } }) => g.value.value === 'Black')
+  assert.equal(black.attribute.supportsImages, true); assert.equal(black.value.hex, '#000000')
+  assert.equal(black.images.length, 3); assert.deepEqual(black.images.map((i: { sortOrder: number }) => i.sortOrder), [0, 1, 2])
+  assert.deepEqual(Object.keys(black.images[0]).sort(), ['altText', 'sortOrder', 'url'])
+  assert.match(black.images[0].url, /^\/api\/v1\/media\/business\//)
+  assert.equal(raw.includes('objectKey'), false); assert.equal(raw.includes('businessId'), false); assert.equal(raw.includes('.test-uploads'), false)
+  const attrs = product.attributes as { name: string; supportsImages: boolean; values: { id: string; value: string }[] }[]
+  assert.deepEqual(attrs.map((a) => a.name), ['Color', 'Fabric', 'Size'])
+  assert.equal(attrs.find((a) => a.name === 'Color')!.supportsImages, true); assert.equal(attrs.find((a) => a.name === 'Size')!.supportsImages, false)
+  assert.deepEqual(attrs.find((a) => a.name === 'Color')!.values.map((v) => v.value).sort(), ['Black', 'Maroon'])
+  assert.equal(product.variants[0].attributes.Fabric, 'Rayon') // legacy name->value map intact
+})
+test('enquiry attribute snapshots are unchanged by attribute images', async () => {
+  const enquiry = await prisma.enquiry.findUniqueOrThrow({ where: { id: enquiryId }, include: { items: true } })
+  assert.deepEqual(enquiry.items.map((i) => i.attributesSnapshot), [{ Fabric: 'Rayon', Color: 'Black', Size: 'XL' }, { Fabric: 'Rayon', Color: 'Maroon', Size: 'L' }])
+})
+test('delete image removes DB row and stored object', async () => {
+  const maroon = await valueId('Color', 'Maroon')
+  const image = await prisma.productAttributeValueImage.findFirstOrThrow({ where: { productId, attributeValueId: maroon } })
+  assert.equal(fake.objects.has(image.objectKey), true)
+  assert.equal((await request(`${imgPath(productId, maroon)}/${image.id}`, { method: 'DELETE' }, true)).status, 204)
+  assert.equal(await prisma.productAttributeValueImage.count({ where: { id: image.id } }), 0)
+  assert.equal(fake.objects.has(image.objectKey), false)
+  assert.equal((await request(`${imgPath(productId, maroon)}/${image.id}`, { method: 'DELETE' }, true)).status, 404)
+})
+test('storage delete failure still removes the DB row and returns 204 (orphan object tolerated)', async () => {
+  const black = await valueId('Color', 'Black')
+  const image = await prisma.productAttributeValueImage.findFirstOrThrow({ where: { productId, attributeValueId: black }, orderBy: { sortOrder: 'desc' } })
+  fake.failDelete = true
+  try { assert.equal((await request(`${imgPath(productId, black)}/${image.id}`, { method: 'DELETE' }, true)).status, 204) } finally { fake.failDelete = false }
+  assert.equal(await prisma.productAttributeValueImage.count({ where: { id: image.id } }), 0)
+  assert.equal(fake.objects.has(image.objectKey), true)
+})
+test('PATCH diff keeps images of still-enabled values and removes images of removed unused values (rows and objects)', async () => {
+  const black = await valueId('Color', 'Black'), maroon = await valueId('Color', 'Maroon')
+  assert.equal((await uploadFiles(imgPath(k104, black), [{ type: 'image/png', bytes: PNG }])).status, 201)
+  assert.equal((await uploadFiles(imgPath(k104, maroon), [{ type: 'image/png', bytes: PNG }])).status, 201)
+  const maroonKey = (await prisma.productAttributeValueImage.findFirstOrThrow({ where: { productId: k104, attributeValueId: maroon } })).objectKey
+  const blackKey = (await prisma.productAttributeValueImage.findFirstOrThrow({ where: { productId: k104, attributeValueId: black } })).objectKey
+  // Unrelated PATCH that re-sends the same set must not drop any image.
+  assert.equal((await request(`/api/v1/products/${k104}`, { method: 'PATCH', headers: json, body: JSON.stringify({ allowedAttributeValueIds: [black, maroon] }) }, true)).status, 204)
+  assert.equal(await prisma.productAttributeValueImage.count({ where: { productId: k104 } }), 2)
+  assert.equal((await request(`/api/v1/products/${k104}`, { method: 'PATCH', headers: json, body: JSON.stringify({ allowedAttributeValueIds: [black] }) }, true)).status, 204)
+  assert.equal(await prisma.productAttributeValueImage.count({ where: { productId: k104, attributeValueId: maroon } }), 0)
+  assert.equal(await prisma.productAttributeValueImage.count({ where: { productId: k104, attributeValueId: black } }), 1)
+  assert.equal(fake.objects.has(maroonKey), false); assert.equal(fake.objects.has(blackKey), true)
+  assert.equal(await prisma.attributeValue.count({ where: { id: maroon } }), 1) // global value never cascaded
+})
+test('removing a variant-used value is still 409 and its images stay intact', async () => {
+  const imagesBefore = await prisma.productAttributeValueImage.count({ where: { productId } })
+  const keep = (await prisma.productAttributeValue.findMany({ where: { productId } })).map((r) => r.attributeValueId).filter((id) => id !== null)
+  const maroon = await valueId('Color', 'Maroon')
+  const r = await request(`/api/v1/products/${productId}`, { method: 'PATCH', headers: json, body: JSON.stringify({ allowedAttributeValueIds: keep.filter((id) => id !== maroon) }) }, true)
+  assert.equal(r.status, 409)
+  assert.equal(await prisma.productAttributeValueImage.count({ where: { productId } }), imagesBefore)
+})
+test('POST /media stores through the provider under a staged tenant key and general product media uses derived URLs', async () => {
+  const biz = await businessIdOf()
+  const form = new FormData(); form.append('file', new Blob([new Uint8Array(PNG)], { type: 'image/png' }), 'x.png')
+  const up = await request('/api/v1/media', { method: 'POST', body: form }, true); assert.equal(up.status, 201)
+  const media = (await up.json()).data
+  assert.match(media.objectKey, new RegExp(`^business/${biz}/products/_staged/general/[0-9a-f-]{36}\\.png$`))
+  assert.equal(fake.objects.has(media.objectKey), true); assert.equal(media.url, `/api/v1/media/${media.objectKey}`)
+  const bad = new FormData(); bad.append('file', new Blob([new Uint8Array(JPEG)], { type: 'image/png' }), 'x.png')
+  assert.equal((await request('/api/v1/media', { method: 'POST', body: bad }, true)).status, 400)
+  const category = (await prisma.product.findFirstOrThrow({ where: { id: productId } })).categoryId
+  const create = (mediaItem: object) => request('/api/v1/products', { method: 'POST', headers: json, body: JSON.stringify({ categoryId: category, code: `K-M-${Math.random().toString(36).slice(2, 7)}`, name: 'Media test', basePrice: 10, media: [mediaItem] }) }, true)
+  const ok = await create({ objectKey: media.objectKey, url: 'https://evil.example/x.png', mimeType: 'image/png', sizeBytes: media.sizeBytes, primary: true })
+  assert.equal(ok.status, 201); const product = (await ok.json()).data
+  assert.equal(product.media[0].url, `/api/v1/media/${media.objectKey}`)
+  const other = await prisma.business.findFirstOrThrow({ where: { slug: 'other-test' } })
+  assert.equal((await create({ objectKey: `business/${other.id}/products/x/general/a.png`, url: 'x', mimeType: 'image/png' })).status, 400)
+  assert.equal((await create({ objectKey: `${other.id}/legacy.png`, url: 'x', mimeType: 'image/png' })).status, 400)
+  assert.equal((await create({ objectKey: `business/${biz}/../${other.id}/a.png`, url: 'x', mimeType: 'image/png' })).status, 400)
+  assert.equal((await create({ objectKey: `${biz}/legacy-owned.png`, url: 'x', mimeType: 'image/png' })).status, 201) // legacy own prefix still accepted
+})
+test('inventory and auth still work after image changes', async () => {
+  assert.equal((await request('/api/v1/auth/me', {}, true)).status, 200)
+  assert.equal((await request('/api/v1/inventory/movements', { method: 'POST', headers: json, body: JSON.stringify({ variantId: maroonLId, type: 'ADJUSTMENT', quantity: 1, reason: 'post-image check' }) }, true)).status, 201)
+})
+
+// ---- provider unit tests (no network) ----
+test('R2 public URL generation joins base and key safely', () => {
+  const r2 = (publicBaseUrl: string) => new CloudflareR2StorageProvider({ accessKeyId: 'a', secretAccessKey: 'b', bucket: 'bkt', publicBaseUrl, client: { send: async () => ({}) } })
+  assert.equal(r2('https://cdn.example.com').getPublicUrl('business/b1/p/a b/ü.png'), 'https://cdn.example.com/business/b1/p/a%20b/%C3%BC.png')
+  assert.equal(r2('https://cdn.example.com/').getPublicUrl('/business/b1/x.png'), 'https://cdn.example.com/business/b1/x.png')
+  assert.equal(r2('https://cdn.example.com/media///').getPublicUrl('business/x.png'), 'https://cdn.example.com/media/business/x.png')
+  assert.equal(new LocalStorageProvider('x').getPublicUrl('b1/a#b.png'), '/api/v1/media/b1/a%23b.png')
+})
+test('R2 provider sends the expected commands to a mocked client and maps failures', async () => {
+  const sent: unknown[] = []; let mode: 'ok' | 'notfound' | 'denied' = 'ok'
+  const client = { send: async (c: unknown) => { sent.push(c); if (mode === 'notfound') throw Object.assign(new Error('x'), { name: 'NotFound', $metadata: { httpStatusCode: 404 } }); if (mode === 'denied') throw Object.assign(new Error('secret-endpoint.r2.cloudflarestorage.com'), { name: 'AccessDenied', $metadata: { httpStatusCode: 403 } }); return {} } }
+  const p = new CloudflareR2StorageProvider({ accessKeyId: 'a', secretAccessKey: 'b', bucket: 'bkt', publicBaseUrl: 'https://cdn.example.com', client })
+  await p.upload({ key: 'business/b/products/p/general/u.png', body: PNG, contentType: 'image/png' })
+  assert.ok(sent[0] instanceof PutObjectCommand); assert.equal((sent[0] as PutObjectCommand).input.Bucket, 'bkt'); assert.equal((sent[0] as PutObjectCommand).input.Key, 'business/b/products/p/general/u.png'); assert.equal((sent[0] as PutObjectCommand).input.ContentType, 'image/png')
+  assert.equal(await p.exists('business/b/x.png'), true); assert.ok(sent[1] instanceof HeadObjectCommand)
+  await p.delete('business/b/x.png'); assert.ok(sent[2] instanceof DeleteObjectCommand)
+  mode = 'notfound'; assert.equal(await p.exists('business/b/x.png'), false)
+  mode = 'denied'
+  await assert.rejects(p.upload({ key: 'business/b/x.png', body: PNG, contentType: 'image/png' }), (e: Error) => e instanceof StorageError && !/secret-endpoint/.test(e.message))
+  await assert.rejects(p.delete('../escape.png'), StorageError)
+  await assert.rejects(p.upload({ key: '/abs.png', body: PNG, contentType: 'image/png' }), StorageError)
+})
+test('storage config validation fails fast naming missing variables only', () => {
+  const base = { uploadDir: 'uploads', r2: { accountId: undefined, accessKeyId: 'AKIA-SECRET', secretAccessKey: undefined, bucket: undefined, publicBaseUrl: undefined, endpoint: undefined } }
+  assert.throws(() => createStorageProvider({ ...base, uploadProvider: 'r2' }), (e: Error) => /R2_ACCOUNT_ID/.test(e.message) && /R2_SECRET_ACCESS_KEY/.test(e.message) && /R2_BUCKET_NAME/.test(e.message) && /R2_PUBLIC_BASE_URL/.test(e.message) && !/AKIA-SECRET/.test(e.message))
+  assert.throws(() => createStorageProvider({ ...base, uploadProvider: 's3' }), /Unsupported UPLOAD_PROVIDER/)
+  assert.equal(createStorageProvider({ ...base, uploadProvider: 'r2', r2: { accountId: 'acc', accessKeyId: 'a', secretAccessKey: 'b', bucket: 'bkt', publicBaseUrl: 'https://cdn.example.com', endpoint: undefined } }).name, 'r2')
+  assert.equal(createStorageProvider({ ...base, uploadProvider: 'local' }).name, 'local')
+})
+test('local provider writes under its root, deletes, and rejects traversal', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'vw-local-'))
+  try {
+    const p = new LocalStorageProvider(dir)
+    await p.upload({ key: 'business/b/x.png', body: PNG, contentType: 'image/png' })
+    assert.deepEqual(await readFile(path.join(dir, 'business', 'b', 'x.png')), PNG); assert.equal(await p.exists('business/b/x.png'), true)
+    await p.delete('business/b/x.png'); assert.equal(await p.exists('business/b/x.png'), false); await p.delete('business/b/x.png')
+    for (const key of ['../x.png', 'a/../../x.png', '/etc/passwd', 'a//b.png']) await assert.rejects(p.upload({ key, body: PNG, contentType: 'image/png' }), StorageError)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+// ---- local -> R2 migration tool (fake target, temp dir) ----
+test('storage migration tool (--rewrite-keys): dry-run, migrate, idempotent re-run, failures and --delete-local', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'vw-mig-'))
+  const target = new FakeStorage(); const biz = await businessIdOf()
+  await prisma.productMedia.deleteMany()
+  try {
+    await mkdir(path.join(dir, biz), { recursive: true })
+    await writeFile(path.join(dir, biz, 'legacy-a.png'), PNG); await writeFile(path.join(dir, biz, 'legacy-b.png'), PNG)
+    const mk = (objectKey: string) => prisma.productMedia.create({ data: { productId: k104, objectKey, url: `/api/v1/media/${objectKey}`, mimeType: 'image/png' } })
+    const a = await mk(`${biz}/legacy-a.png`), b = await mk(`${biz}/legacy-b.png`), missing = await mk(`${biz}/missing.png`)
+    const dry = await migrateStorage({ prisma, target, sourceDir: dir, dryRun: true, rewriteKeys: true })
+    assert.equal(dry.failed, 1); assert.equal(target.uploads.length, 0)
+    assert.equal((await prisma.productMedia.findUniqueOrThrow({ where: { id: a.id } })).objectKey, `${biz}/legacy-a.png`)
+    const run = await migrateStorage({ prisma, target, sourceDir: dir, deleteLocal: true, rewriteKeys: true })
+    assert.equal(run.failed, 1); assert.match(run.failures[0], /missing|not found/i)
+    const a2 = await prisma.productMedia.findUniqueOrThrow({ where: { id: a.id } })
+    assert.match(a2.objectKey, new RegExp(`^business/${biz}/products/${k104}/general/[0-9a-f-]{36}\\.png$`)); assert.equal(a2.url, `/api/v1/media/${a2.objectKey}`); assert.equal(a2.sizeBytes, PNG.length)
+    assert.equal(target.objects.has(a2.objectKey), true)
+    await assert.rejects(readFile(path.join(dir, biz, 'legacy-a.png')))
+    assert.equal((await prisma.productMedia.findUniqueOrThrow({ where: { id: missing.id } })).objectKey, `${biz}/missing.png`)
+    const uploadsAfterFirst = target.uploads.length
+    const again = await migrateStorage({ prisma, target, sourceDir: dir, rewriteKeys: true })
+    assert.equal(target.uploads.length, uploadsAfterFirst); assert.equal(again.failed, 1)
+    assert.equal((await prisma.productMedia.findUniqueOrThrow({ where: { id: b.id } })).objectKey.startsWith('business/'), true)
+    target.failUpload = true
+    await prisma.productMedia.deleteMany({ where: { id: { in: [a.id, b.id, missing.id] } } })
+    await writeFile(path.join(dir, biz, 'legacy-c.png'), PNG); const c = await mk(`${biz}/legacy-c.png`)
+    const failing = await migrateStorage({ prisma, target, sourceDir: dir, rewriteKeys: true })
+    assert.equal(failing.failed, 1); assert.equal((await prisma.productMedia.findUniqueOrThrow({ where: { id: c.id } })).objectKey, `${biz}/legacy-c.png`)
+  } finally { await rm(dir, { recursive: true, force: true }); await prisma.productMedia.deleteMany({ where: { productId: k104 } }) }
+})
+
+test('storage migration tool (default mirror mode): same keys, no DB writes, local kept, idempotent, URL verification', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'vw-mirror-'))
+  const target = new FakeStorage(); const biz = await businessIdOf()
+  await prisma.productMedia.deleteMany({ where: { productId: k104 } })
+  try {
+    await mkdir(path.join(dir, biz), { recursive: true })
+    await writeFile(path.join(dir, biz, 'm-a.png'), PNG)
+    const mk = (objectKey: string) => prisma.productMedia.create({ data: { productId: k104, objectKey, url: `/api/v1/media/${objectKey}`, mimeType: 'image/png' } })
+    const a = await mk(`${biz}/m-a.png`)
+    const before = JSON.stringify(await prisma.productMedia.findUniqueOrThrow({ where: { id: a.id } }))
+    const dry = await migrateStorage({ prisma, target, sourceDir: dir, dryRun: true })
+    assert.equal(dry.failed, 0); assert.equal(target.uploads.length, 0)
+    const run = await migrateStorage({ prisma, target, sourceDir: dir })
+    assert.equal(run.migrated, 1); assert.equal(run.failed, 0)
+    assert.equal(target.objects.has(`${biz}/m-a.png`), true)
+    assert.equal(JSON.stringify(await prisma.productMedia.findUniqueOrThrow({ where: { id: a.id } })), before)
+    assert.deepEqual(await readFile(path.join(dir, biz, 'm-a.png')), PNG)
+    const uploads = target.uploads.length
+    const again = await migrateStorage({ prisma, target, sourceDir: dir })
+    assert.equal(target.uploads.length, uploads); assert.equal(again.skipped, 1)
+    await rm(path.join(dir, biz, 'm-a.png'))
+    const noLocal = await migrateStorage({ prisma, target, sourceDir: dir })
+    assert.equal(noLocal.failed, 0); assert.equal(noLocal.skipped, 1)
+    await writeFile(path.join(dir, biz, 'm-a.png'), PNG)
+    const ok = await migrateStorage({ prisma, target, sourceDir: dir, verifyUrls: true, fetchFn: async (url) => { assert.equal(url, target.getPublicUrl(`${biz}/m-a.png`)); return { status: 200, headers: { get: () => String(PNG.length) } } } })
+    assert.equal(ok.verified, 1); assert.equal(ok.failed, 0)
+    const bad = await migrateStorage({ prisma, target, sourceDir: dir, verifyUrls: true, fetchFn: async () => ({ status: 404, headers: { get: () => null } }) })
+    assert.equal(bad.failed, 1); assert.match(bad.failures[0], /public URL check failed/)
+    const mismatch = await migrateStorage({ prisma, target, sourceDir: dir, verifyUrls: true, fetchFn: async () => ({ status: 200, headers: { get: () => '1' } }) })
+    assert.equal(mismatch.failed, 1); assert.match(mismatch.failures[0], /size mismatch/)
+  } finally { await rm(dir, { recursive: true, force: true }); await prisma.productMedia.deleteMany({ where: { productId: k104 } }) }
+})

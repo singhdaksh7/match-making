@@ -1,0 +1,124 @@
+# Self-contained production stack for a fresh VPS that has ONLY Docker:
+#   Caddy (auto-HTTPS for APP_HOST) -> web (nginx SPA) + api (Express) -> PostgreSQL
+# No external network and no Traefik are required. See DEPLOY_NEW_VPS.md.
+#
+#   export COMPOSE_FILE=docker-compose.standalone.yml
+#   docker compose --env-file .env.production up -d --build
+#
+# Required env (see .env.production.example): APP_HOST, POSTGRES_PASSWORD.
+
+services:
+  vastraa-db:
+    image: postgres:16-alpine
+    container_name: vastraa-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vastraa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-vastraa}
+    volumes:
+      - vastraa_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vastraa} -d ${POSTGRES_DB:-vastraa}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [internal]
+
+  # One-shot: applies pending Prisma migrations (forward-only) and exits.
+  # The API will not start unless this exits 0.
+  vastraa-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: vastraa-backend:latest
+    container_name: vastraa-migrate
+    restart: "no"
+    depends_on:
+      vastraa-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vastraa}:${POSTGRES_PASSWORD}@vastraa-db:5432/${POSTGRES_DB:-vastraa}
+      # Only used by the manual tools run via this service (storage:migrate:r2), not by migrate deploy.
+      UPLOAD_PROVIDER: ${UPLOAD_PROVIDER:-r2}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
+      R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL:-}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+    command: ["node", "node_modules/prisma/build/index.js", "migrate", "deploy", "--schema", "prisma/schema.prisma"]
+    networks: [internal]
+
+  vastraa-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: vastraa-backend:latest
+    container_name: vastraa-api
+    restart: unless-stopped
+    depends_on:
+      vastraa-db:
+        condition: service_healthy
+      vastraa-migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vastraa}:${POSTGRES_PASSWORD}@vastraa-db:5432/${POSTGRES_DB:-vastraa}
+      CORS_ORIGIN: https://${APP_HOST:?APP_HOST is required}
+      SESSION_DAYS: ${SESSION_DAYS:-7}
+      # Production media lives in Cloudflare R2 (UPLOAD_PROVIDER=r2). The API validates
+      # the R2_* values at startup. They are runtime-only: never VITE_*/build args.
+      UPLOAD_PROVIDER: ${UPLOAD_PROVIDER:-r2}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
+      R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL:-}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-5242880}
+    networks: [internal]
+
+  vastraa-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    container_name: vastraa-web
+    restart: unless-stopped
+    depends_on:
+      vastraa-api:
+        condition: service_healthy
+    networks: [internal]
+
+  vastraa-caddy:
+    image: caddy:2-alpine
+    container_name: vastraa-caddy
+    restart: unless-stopped
+    depends_on:
+      - vastraa-web
+      - vastraa-api
+    environment:
+      APP_HOST: ${APP_HOST:?APP_HOST is required}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - vastraa_caddy_data:/data
+      - vastraa_caddy_config:/config
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  vastraa_db_data:
+  vastraa_caddy_data:
+  vastraa_caddy_config:

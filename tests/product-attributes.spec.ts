@@ -33,7 +33,7 @@ test('add product attribute flow on desktop and mobile', async ({ browser }) => 
     })
     await page.getByRole('button', { name: 'Continue' }).click()
     await expect(page.getByText('Step 3 of 7')).toBeVisible()
-    await expect(page.getByText(/No attributes are configured/).or(page.getByText('Color')).or(page.getByText('Fabric'))).toBeVisible()
+    await expect(page.getByText(/No attributes are configured/).or(page.getByText('Color').first()).or(page.getByText('Fabric').first()).first()).toBeVisible()
     await assertNoOverflow(page, `add-product attributes ${viewport.width}`)
     await context.close()
   }

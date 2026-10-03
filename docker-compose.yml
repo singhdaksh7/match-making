@@ -1,5 +1,7 @@
-# Production compose file. Attaches to the VPS's existing external Traefik
-# network instead of publishing ports 80/443 itself — see DEPLOYMENT.md.
+# Production compose file for a VPS that ALREADY runs Traefik. It attaches to the
+# existing external Traefik network instead of publishing ports 80/443 itself.
+# On a fresh VPS without Traefik use docker-compose.standalone.yml (Caddy) -
+# see DEPLOY_NEW_VPS.md. Usage: docker compose --env-file .env.production ...
 #
 # Before first deploy, confirm on the actual VPS:
 #   - the external Traefik docker network name (TRAEFIK_NETWORK below assumes "traefik")
@@ -23,6 +25,34 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    networks:
+      - internal
+
+  # One-shot: applies pending Prisma migrations (forward-only) and exits.
+  # The API will not start unless this exits 0.
+  vastraa-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: vastraa-backend:latest
+    container_name: vastraa-migrate
+    restart: "no"
+    depends_on:
+      vastraa-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vastraa}:${POSTGRES_PASSWORD}@vastraa-db:5432/${POSTGRES_DB:-vastraa}
+      # Only used by the manual tools run via this service (storage:migrate:r2), not by migrate deploy.
+      UPLOAD_PROVIDER: ${UPLOAD_PROVIDER:-r2}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
+      R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL:-}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+    command: ["node", "node_modules/prisma/build/index.js", "migrate", "deploy", "--schema", "prisma/schema.prisma"]
     networks:
       - internal
 
@@ -30,22 +60,30 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
+    image: vastraa-backend:latest
     container_name: vastraa-api
     restart: unless-stopped
     depends_on:
       vastraa-db:
         condition: service_healthy
+      vastraa-migrate:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       PORT: 4000
       DATABASE_URL: postgresql://${POSTGRES_USER:-vastraa}:${POSTGRES_PASSWORD}@vastraa-db:5432/${POSTGRES_DB:-vastraa}
-      CORS_ORIGIN: https://${APP_HOST}
+      CORS_ORIGIN: https://${APP_HOST:?APP_HOST is required}
       SESSION_DAYS: ${SESSION_DAYS:-7}
-      UPLOAD_PROVIDER: ${UPLOAD_PROVIDER:-local}
-      UPLOAD_DIR: /app/uploads
+      # Production media lives in Cloudflare R2 (UPLOAD_PROVIDER=r2). The API validates
+      # the R2_* values at startup. They are runtime-only: never VITE_*/build args.
+      UPLOAD_PROVIDER: ${UPLOAD_PROVIDER:-r2}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
+      R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL:-}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-5242880}
-    volumes:
-      - vastraa_media:/app/uploads
     networks:
       - internal
       - traefik
@@ -70,8 +108,10 @@ services:
     container_name: vastraa-web
     restart: unless-stopped
     depends_on:
-      - vastraa-api
+      vastraa-api:
+        condition: service_healthy
     networks:
+      - internal
       - traefik
     labels:
       - traefik.enable=true
@@ -92,4 +132,3 @@ networks:
 
 volumes:
   vastraa_db_data:
-  vastraa_media:

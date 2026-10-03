@@ -9,15 +9,23 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "api": "tsx backend/src/server.ts",
-    "backend:build": "tsc -p tsconfig.backend.json",
-    "backend:check": "tsc -p tsconfig.backend.json --noEmit",
+    "backend:build": "tsc -p tsconfig.backend.json && tsc -p tsconfig.tools.json",
+    "backend:check": "tsc -p tsconfig.backend.json --noEmit && tsc -p tsconfig.tools.json --noEmit",
     "prisma:validate": "prisma validate",
-    "prisma:generate": "prisma generate"
-    ,"test:backend": "node --env-file=.env.test --import tsx --test tests/backend.integration.test.ts"
-    ,"test:backend:migrate": "node --env-file=.env.test node_modules/prisma/build/index.js migrate deploy --schema prisma/schema.prisma"
-    ,"test:e2e": "playwright test"
+    "prisma:generate": "prisma generate",
+    "test:backend": "node --env-file=.env.test --import tsx --test tests/backend.integration.test.ts",
+    "test:backend:migrate": "node --env-file=.env.test node_modules/prisma/build/index.js migrate deploy --schema prisma/schema.prisma",
+    "test:e2e": "playwright test",
+    "tools:build": "tsc -p tsconfig.tools.json",
+    "admin:create": "tsx scripts/create-admin.ts",
+    "admin:create:prod": "node dist-tools/scripts/create-admin.js",
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "seed:demo:prod": "node dist-tools/scripts/seed-demo.js",
+    "storage:migrate:r2": "tsx backend/src/tools/migrateStorageToR2.ts",
+    "storage:migrate:r2:prod": "node dist-tools/backend/src/tools/migrateStorageToR2.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1146.0",
     "@prisma/client": "^6.19.2",
     "@tanstack/react-query": "^5.103.2",
     "@types/qrcode": "^1.5.6",
@@ -32,15 +40,16 @@
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.47.0",
     "multer": "^2.4.0",
+    "prisma": "^6.19.2",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.4",
     "recharts": "^3.10.1",
-    "zod": "^4.6.5",
-    "prisma": "^6.19.2"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.3.3",
     "@tailwindcss/vite": "^4.3.3",
     "@types/cookie-parser": "^1.4.10",
@@ -56,13 +65,12 @@
     "autoprefixer": "^10.6.1",
     "oxlint": "^1.81.0",
     "postcss": "^8.5.28",
-    "@playwright/test": "^1.58.2",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   },
   "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx scripts/seed-demo.ts"
   }
 }

@@ -5,8 +5,8 @@ The backend lives in `backend/`, uses Express + Prisma/PostgreSQL, and is indepe
 ## Start locally
 
 1. Copy `.env.example` to `.env` and start Postgres with `docker compose -f docker-compose.dev.yml up -d`.
-2. Run `npx prisma migrate dev --name init`, `npx prisma db seed`, then `npm run api`.
-3. The seeded owner is `admin@vastraa.demo` / `ChangeMe123!`; change the password outside demo use.
+2. Local development only: `npx prisma migrate dev`, `npx prisma db seed` (guarded demo seed), then `npm run api`. Production uses `prisma migrate deploy` only.
+3. The seeded owner is `admin@vastraa.demo` / `ChangeMe123!`; demo data only; production owners are created with `npm run admin:create`.
 
 ## API conventions
 

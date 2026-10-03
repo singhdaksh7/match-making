@@ -1,7 +1,9 @@
 import { ArrowLeft, ArrowRight, Check, Plus, Star, Trash2, UploadCloud } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { AttributePhotos, useAttributeImages } from '@/components/product/AttributePhotos'
 import { ColorSwatch } from '@/components/ui/ColorSwatch'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useAppData } from '@/context/AppDataContext'
 import { useToast } from '@/context/ToastContext'
 import { ApiError, apiClient } from '@/services/api/client'
@@ -63,6 +65,8 @@ export default function ProductFormPage() {
   const [comparePrice, setComparePrice] = useState(existing?.comparePrice ?? 0)
   const [moq, setMoq] = useState(existing?.moq ?? data.settings.catalogueDefaults.defaultMOQ)
   const [manualAttrs, setManualAttrs] = useState<Record<string, string>>({})
+  const [pendingDeselect, setPendingDeselect] = useState<{ attrId: string; valueId: string; name: string; usedByVariants: boolean } | null>(null)
+  const attrImages = useAttributeImages(isEdit ? id : undefined, (valueId) => existing?.allowedAttributeValueIds.includes(valueId) ?? false)
 
   const category = data.categories.find((item) => item.id === categoryId)
   const categoryAttributes = useMemo(
@@ -71,6 +75,19 @@ export default function ProductFormPage() {
   )
 
   function toggleValue(attrId: string, valueId: string) {
+    const selected = (selectedValueIds[attrId] ?? []).includes(valueId)
+    const attr = data.attributes.find((item) => item.id === attrId)
+    const value = attr?.values.find((item) => item.id === valueId)
+    if (selected && attr && value && (attrImages.items[valueId]?.length ?? 0) > 0) {
+      const key = attrKey(attr)
+      const usedByVariants = draftVariants.some((variant) => variant.enabled && variant.existingId && variant.attributes[key] === value.value)
+      setPendingDeselect({ attrId, valueId, name: value.value, usedByVariants })
+      return
+    }
+    applyToggle(attrId, valueId)
+  }
+
+  function applyToggle(attrId: string, valueId: string) {
     setSelectedValueIds((prev) => {
       const current = prev[attrId] ?? []
       const next = current.includes(valueId) ? current.filter((item) => item !== valueId) : [...current, valueId]
@@ -155,6 +172,14 @@ export default function ProductFormPage() {
     return true
   }
 
+  /** Uploads photos that were staged client-side. Returns a comma list of failed values, or '' when all went fine. */
+  async function flushAttributePhotos(productId: string) {
+    const valueIds = categoryAttributes.filter((attr) => attr.supportsImages).flatMap((attr) => allowedValuesFor(attr).map((value) => value.id))
+    const nameOf = (valueId: string) => data.attributes.flatMap((attr) => attr.values).find((value) => value.id === valueId)?.value ?? valueId
+    const failures = await attrImages.flushStaged(productId, valueIds, nameOf)
+    return failures.map((failure) => `${failure.name} (${failure.message})`).join(', ')
+  }
+
   async function handleSave() {
     setSaving(true)
     try {
@@ -192,11 +217,22 @@ export default function ProductFormPage() {
       if (isEdit) {
         await updateProduct(productId, product)
         for (const variant of variants) await addVariant({ ...variant, productId })
+        const failures = await flushAttributePhotos(productId)
+        if (failures) {
+          showToast(`Product saved, but photos failed for ${failures}. Fix and save again.`, 'error')
+          return
+        }
         showToast('Product updated successfully')
         navigate(`/products/${productId}`)
         return
       }
       const createdId = await addProduct(product, variants)
+      const failures = await flushAttributePhotos(createdId)
+      if (failures) {
+        showToast(`Product created, but photos failed for ${failures}. Open Edit to retry.`, 'error')
+        navigate(`/products/${createdId}/edit`)
+        return
+      }
       showToast('Product created successfully')
       navigate(`/products/${createdId}`)
     } catch (error) {
@@ -397,6 +433,15 @@ export default function ProductFormPage() {
           </div>
         )}
 
+        {step === 5 && (
+          <AttributePhotos
+            sections={categoryAttributes.map((attr) => ({ attr, values: allowedValuesFor(attr) }))}
+            state={attrImages}
+            isEdit={isEdit}
+            isPersisted={(valueId) => existing?.allowedAttributeValueIds.includes(valueId) ?? false}
+          />
+        )}
+
         {step === 6 && (
           <div className="space-y-4">
             <div className="flex gap-4">
@@ -439,6 +484,23 @@ export default function ProductFormPage() {
           </button>
         )}
       </div>
+      <ConfirmDialog
+        open={Boolean(pendingDeselect)}
+        danger
+        title={`Remove ${pendingDeselect?.name ?? ''}?`}
+        description={pendingDeselect?.usedByVariants
+          ? `${pendingDeselect.name} has photos and is used by existing variants. Saving will be blocked until those variants are removed.`
+          : `${pendingDeselect?.name ?? 'This value'} has photos. They will be deleted when you save this product.`}
+        confirmLabel="Remove value"
+        onCancel={() => setPendingDeselect(null)}
+        onConfirm={() => {
+          if (pendingDeselect) {
+            attrImages.discardValue(pendingDeselect.valueId)
+            applyToggle(pendingDeselect.attrId, pendingDeselect.valueId)
+          }
+          setPendingDeselect(null)
+        }}
+      />
     </div>
   )
 }

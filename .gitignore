@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-backend
+dist-tools
 dist-ssr
 *.local
 
@@ -17,6 +18,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 # Backend uploads & local artifacts
 server/uploads
@@ -36,3 +38,13 @@ db_backups
 *.njsproj
 *.sln
 *.sw?
+
+# Backups and local media (never commit)
+backups/
+uploads/
+*.tar.gz
+
+# Generated tooling output
+graphify-out/
+playwright-report/
+.test-uploads/

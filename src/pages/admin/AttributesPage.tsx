@@ -1,4 +1,4 @@
-import { Plus, Sliders, Trash2, X } from 'lucide-react'
+import { ImageIcon, Plus, Sliders, X } from 'lucide-react'
 import { useState } from 'react'
 import { ColorSwatch } from '@/components/ui/ColorSwatch'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -14,15 +14,35 @@ export default function AttributesPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newType, setNewType] = useState<AttributeType>('text')
+  const [newSupportsImages, setNewSupportsImages] = useState(false)
+  const [savingImagesFor, setSavingImagesFor] = useState<string | null>(null)
   const [assignOpen, setAssignOpen] = useState<Attribute | null>(null)
   const [newValueInput, setNewValueInput] = useState<Record<string, string>>({})
 
-  function handleCreateAttribute() {
+  async function handleCreateAttribute() {
     if (!newName.trim()) return
-    addAttribute({ id: `attr-${Date.now()}`, name: newName, type: newType, values: [] })
-    showToast('Attribute created successfully')
-    setNewName('')
-    setCreateOpen(false)
+    try {
+      await addAttribute({ id: `attr-${Date.now()}`, name: newName, type: newType, values: [], supportsImages: newSupportsImages })
+      showToast('Attribute created successfully')
+      setNewName('')
+      setNewSupportsImages(false)
+      setCreateOpen(false)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not create attribute', 'error')
+    }
+  }
+
+  async function handleToggleImages(attr: Attribute, next: boolean) {
+    setSavingImagesFor(attr.id)
+    try {
+      await updateAttribute(attr.id, { supportsImages: next })
+      showToast(next ? `Product images enabled for ${attr.name}` : `Product images disabled for ${attr.name}`)
+    } catch (error) {
+      // Backend answers 409 when images already exist for this attribute; surface its message.
+      showToast(error instanceof Error ? error.message : 'Could not update attribute', 'error')
+    } finally {
+      setSavingImagesFor(null)
+    }
   }
 
   function handleAddValue(attr: Attribute) {
@@ -62,13 +82,20 @@ export default function AttributesPage() {
           {data.attributes.map((attr) => (
             <div key={attr.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
               <button
-                onClick={() => setExpanded(expanded === attr.id ? null : attr.id)}
+                data-testid={`attr-header-${attr.name}`} onClick={() => setExpanded(expanded === attr.id ? null : attr.id)}
                 className="flex w-full items-center justify-between px-5 py-4"
               >
                 <div className="flex items-center gap-3">
                   <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f5ede2] text-[#7a5230]"><Sliders size={16} /></span>
                   <div className="text-left">
-                    <p className="text-sm font-semibold text-stone-800">{attr.name}</p>
+                    <p className="flex items-center gap-2 text-sm font-semibold text-stone-800">
+                      {attr.name}
+                      {attr.supportsImages && (
+                        <span data-testid={`attr-images-badge-${attr.name}`} className="inline-flex items-center gap-1 rounded-full bg-[#f5ede2] px-2 py-0.5 text-[10px] font-semibold text-[#7a5230]">
+                          <ImageIcon size={10} /> Images
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs text-stone-400">{attr.values.length} values · {attr.type}</p>
                   </div>
                 </div>
@@ -82,6 +109,17 @@ export default function AttributesPage() {
 
               {expanded === attr.id && (
                 <div className="border-t border-stone-100 px-5 py-4">
+                  <label className="mb-3 flex min-h-10 cursor-pointer items-center gap-3 text-sm font-medium text-stone-700">
+                    <input
+                      type="checkbox"
+                      data-testid={`attr-supports-images-${attr.name}`}
+                      checked={Boolean(attr.supportsImages)}
+                      disabled={savingImagesFor === attr.id}
+                      onChange={(e) => handleToggleImages(attr, e.target.checked)}
+                      className="h-5 w-5 rounded border-stone-300"
+                    />
+                    Allow product images for this attribute
+                  </label>
                   <div className="mb-3 flex flex-wrap gap-2">
                     {attr.values.map((v) => (
                       <span key={v.id} className="flex items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 py-1 pl-2.5 pr-1.5 text-xs font-medium text-stone-700">
@@ -126,6 +164,10 @@ export default function AttributesPage() {
               ))}
             </div>
           </div>
+          <label className="flex min-h-10 cursor-pointer items-center gap-3 text-sm font-medium text-stone-700">
+            <input type="checkbox" data-testid="new-attr-supports-images" checked={newSupportsImages} onChange={(e) => setNewSupportsImages(e.target.checked)} className="h-5 w-5 rounded border-stone-300" />
+            Allow product images for this attribute
+          </label>
           <button onClick={handleCreateAttribute} className="w-full rounded-xl bg-stone-900 py-3 text-sm font-semibold text-white">Create Attribute</button>
         </div>
       </Modal>

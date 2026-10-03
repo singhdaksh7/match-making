@@ -119,6 +119,7 @@ id String @id @default(cuid())
  business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
  name String
  kind AttributeKind
+ supportsImages Boolean @default(false)
  values AttributeValue[]
  categories CategoryAttribute[]
  productAttributes ProductAttribute[]
@@ -159,6 +160,7 @@ id String @id @default(cuid())
  media ProductMedia[]
  attributes ProductAttribute[]
  allowedValues ProductAttributeValue[]
+ attributeValueImages ProductAttributeValueImage[]
  variants ProductVariant[]
  collections CollectionProduct[]
  catalogueItems CatalogueItem[]
@@ -180,8 +182,24 @@ productId String
  attributeValueId String
  product Product @relation(fields:[productId],references:[id],onDelete:Cascade)
  attributeValue AttributeValue @relation(fields:[attributeValueId],references:[id])
+ images ProductAttributeValueImage[]
  @@id([productId,attributeValueId])
  @@index([attributeValueId])
+}
+model ProductAttributeValueImage {
+id String @id @default(cuid())
+ productId String
+ attributeValueId String
+ product Product @relation(fields:[productId],references:[id],onDelete:Cascade)
+ productAttributeValue ProductAttributeValue @relation(fields:[productId,attributeValueId],references:[productId,attributeValueId],onDelete:Cascade)
+ objectKey String
+ mimeType String
+ sizeBytes Int
+ altText String?
+ sortOrder Int @default(0)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([productId,attributeValueId,sortOrder])
 }
 model ProductMedia {
 id String @id @default(cuid())
@@ -190,6 +208,7 @@ id String @id @default(cuid())
  objectKey String
  url String
  mimeType String
+ sizeBytes Int?
  primary Boolean @default(false)
  sortOrder Int @default(0)
  createdAt DateTime @default(now())

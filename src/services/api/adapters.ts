@@ -11,7 +11,7 @@ export function backendCategoryToFrontend(value: any): Category {
 }
 export function backendAttributeToFrontend(value: any): Attribute {
   const kind = String(value.kind ?? value.type ?? 'text').toLowerCase()
-  return { id: value.id, name: value.name, type: kind === 'select' || kind === 'text' ? 'text' : kind === 'size' ? 'size' : 'color', values: (value.values ?? []).map((x: any) => ({ id: x.id, value: x.value, hex: x.hex })) }
+  return { id: value.id, name: value.name, type: kind === 'select' || kind === 'text' ? 'text' : kind === 'size' ? 'size' : 'color', values: (value.values ?? []).map((x: any) => ({ id: x.id, value: x.value, hex: x.hex })), supportsImages: Boolean(value.supportsImages) }
 }
 function attributeKey(name: string) {
   const lower = name.toLowerCase()

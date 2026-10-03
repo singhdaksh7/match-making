@@ -48,6 +48,26 @@ export interface Attribute {
   name: string
   type: AttributeType
   values: AttributeValue[]
+  /** When true, admins may attach photos to individual values of this attribute (e.g. Fabric -> Rayon). */
+  supportsImages?: boolean
+}
+
+/** A photo attached to one attribute value of one product. */
+export interface AttributeValueImage {
+  id: string
+  url: string
+  altText?: string
+  sortOrder: number
+}
+
+/** Public catalogue: the photos for one value of an image-capable attribute on a product. */
+export interface ProductAttributeImageGroup {
+  /** lower-cased attribute name, matching ProductVariant.attributes keys (e.g. "fabric") */
+  attributeKey: string
+  attributeName: string
+  valueId: string
+  value: string
+  images: AttributeValueImage[]
 }
 
 export interface ProductMedia {
@@ -87,6 +107,10 @@ export interface Product {
   wholesalePrice: number
   comparePrice?: number
   moq: number
+  /** Public catalogue only: attribute-value-specific photos. */
+  attributeImages?: ProductAttributeImageGroup[]
+  /** Public catalogue only: lower-cased names of this product's attributes that support images. */
+  imageAttributeKeys?: string[]
   status: ProductStatus
   views: number
   createdAt: string

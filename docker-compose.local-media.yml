@@ -1,0 +1,17 @@
+# OPT-IN override for UPLOAD_PROVIDER=local (dev/test/backward compatibility).
+# Production uses Cloudflare R2 and needs no media volume. Usage:
+#   UPLOAD_PROVIDER=local docker compose --env-file .env.production \
+#     -f docker-compose.standalone.yml -f docker-compose.local-media.yml up -d
+# (use docker-compose.yml instead of the standalone file on a Traefik host).
+services:
+  vastraa-api:
+    environment:
+      UPLOAD_PROVIDER: local
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - vastraa_media:/app/uploads
+  vastraa-migrate:
+    environment:
+      UPLOAD_PROVIDER: local
+volumes:
+  vastraa_media:

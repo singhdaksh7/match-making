@@ -17,14 +17,33 @@ services:
       retries: 10
     networks: [vastraa-local]
 
+  vastraa-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: vastraa-backend:local
+    container_name: vastraa-migrate
+    restart: "no"
+    depends_on:
+      vastraa-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vastraa}:${POSTGRES_PASSWORD:-replace-with-a-long-random-password}@vastraa-db:5432/${POSTGRES_DB:-vastraa}
+    command: ["node", "node_modules/prisma/build/index.js", "migrate", "deploy", "--schema", "prisma/schema.prisma"]
+    networks: [vastraa-local]
+
   vastraa-api:
     build:
       context: .
       dockerfile: Dockerfile.backend
+    image: vastraa-backend:local
     container_name: vastraa-api
     depends_on:
       vastraa-db:
         condition: service_healthy
+      vastraa-migrate:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       PORT: 4000

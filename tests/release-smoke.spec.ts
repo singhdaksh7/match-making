@@ -43,8 +43,18 @@ test('inspect running production-like stack', async ({ page, context }) => {
   await publicPage.getByRole('button', { name: 'L', exact: true }).click()
   await publicPage.getByRole('button', { name: 'Add to Selection' }).click()
   await publicPage.getByRole('button', { name: /2 Products Selected/ }).click()
-  await expect(publicPage.getByText('2 Variants')).toBeVisible()
-  await publicPage.getByRole('button', { name: 'Send Enquiry' }).click()
+  // The summary renders count and label in separate elements: assert the Variants tile shows 2,
+  // and that both independently selected variants are listed.
+  await expect(publicPage.locator('div:has(> p:text-is("Variants"))').locator('p').first()).toHaveText('2')
+  await expect(publicPage.getByText('Rayon / Black / XL')).toBeVisible()
+  await expect(publicPage.getByText('Rayon / Maroon / L')).toBeVisible()
+  // Contact name and phone are required before an enquiry can be sent.
+  const sendEnquiry = publicPage.getByRole('button', { name: 'Send Enquiry' })
+  await expect(sendEnquiry).toBeDisabled()
+  await publicPage.locator('label', { hasText: 'Contact Name' }).locator('xpath=following-sibling::input[1]').fill('Release Smoke Buyer')
+  await publicPage.locator('input[type="tel"]').nth(0).fill('9999999999')
+  await expect(sendEnquiry).toBeEnabled()
+  await sendEnquiry.click()
   await expect(publicPage.getByText('Enquiry Sent Successfully')).toBeVisible()
   await publicPage.screenshot({ path: 'test-results/public-success.png', fullPage: true })
   await publicContext.close()

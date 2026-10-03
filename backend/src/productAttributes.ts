@@ -1,12 +1,49 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from './db.js'
 import { HttpError } from './http.js'
+import { publicUrl } from './storage/index.js'
+
+type ImageRow = { id: string; attributeValueId: string; objectKey: string; mimeType: string; sizeBytes: number; altText: string | null; sortOrder: number; createdAt: Date }
+/** Admin image shape: derived URL, never the storage key. */
+export const serializeAttributeImage = (row: ImageRow) => ({ id: row.id, attributeValueId: row.attributeValueId, url: publicUrl(row.objectKey), mimeType: row.mimeType, sizeBytes: row.sizeBytes, altText: row.altText, sortOrder: row.sortOrder, createdAt: row.createdAt })
+/** Applies derived public URLs to media and attribute-value images of a product loaded with productInclude. */
+export function serializeProduct<T extends { media: { objectKey: string; url: string }[]; allowedValues: { images: ImageRow[] }[] }>(product: T) {
+  return {
+    ...product,
+    media: product.media.map((m) => ({ ...m, url: m.objectKey ? publicUrl(m.objectKey) : m.url })),
+    allowedValues: product.allowedValues.map((row) => ({ ...row, images: row.images.map(serializeAttributeImage) })),
+  }
+}
+
+/** Every storage key owned by a product (general media + attribute images); collect BEFORE deleting rows. */
+export async function collectProductObjectKeys(productId: string) {
+  const [media, images] = await Promise.all([
+    prisma.productMedia.findMany({ where: { productId }, select: { objectKey: true } }),
+    prisma.productAttributeValueImage.findMany({ where: { productId }, select: { objectKey: true } }),
+  ])
+  return [...media, ...images].map((row) => row.objectKey)
+}
+
+/** Resolves and authorises an attribute-value image target. 404 for anything outside the caller's tenant. */
+export async function loadImageTarget(businessId: string, productId: string, attributeValueId: string) {
+  const product = await prisma.product.findFirst({ where: { id: productId, businessId }, include: { category: { include: { categoryAttributes: true } } } })
+  if (!product) throw new HttpError(404, 'Product not found', 'NOT_FOUND')
+  const attributeValue = await prisma.attributeValue.findFirst({ where: { id: attributeValueId, attribute: { businessId } }, include: { attribute: true } })
+  if (!attributeValue) throw new HttpError(404, 'Attribute value not found', 'NOT_FOUND')
+  if (!product.category.categoryAttributes.some((row) => row.attributeId === attributeValue.attributeId)) {
+    throw new HttpError(400, `Attribute "${attributeValue.attribute.name}" is not assigned to this product's category`, 'VALIDATION_ERROR')
+  }
+  const enabled = await prisma.productAttributeValue.findUnique({ where: { productId_attributeValueId: { productId, attributeValueId } } })
+  if (!enabled) throw new HttpError(409, `"${attributeValue.value}" is not enabled for this product`, 'CONFLICT')
+  if (!attributeValue.attribute.supportsImages) throw new HttpError(409, `Attribute "${attributeValue.attribute.name}" does not support images`, 'CONFLICT')
+  return { product, attributeValue, attribute: attributeValue.attribute }
+}
 
 export const productInclude = {
   category: { include: { categoryAttributes: true } },
   media: true,
   attributes: { include: { attribute: true } },
-  allowedValues: { include: { attributeValue: { include: { attribute: true } } } },
+  allowedValues: { include: { attributeValue: { include: { attribute: true } }, images: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] } } },
   variants: { include: { attributeValues: { include: { attributeValue: { include: { attribute: true } } } } } },
 } satisfies Prisma.ProductInclude
 
