@@ -1,6 +1,7 @@
-import { ArrowLeft, Copy, ExternalLink, Eye, MessageCircle, Users, Printer, MousePointerClick } from 'lucide-react'
-import { useMemo } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { ArrowLeft, Copy, ExternalLink, Eye, MessageCircle, Users, Printer, MousePointerClick, Trash2, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { DeleteDialog } from '@/components/ui/DeleteDialog'
 import { ImageWithFallback } from '@/components/ui/ImageWithFallback'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { useAppData } from '@/context/AppDataContext'
@@ -10,16 +11,20 @@ import { customerName, effectiveCatalogueStatus, primaryImage, waCatalogueLink }
 
 export default function CatalogueDetailPage() {
   const { id } = useParams()
-  const { data } = useAppData()
+  const { data, refreshData } = useAppData()
   const { showToast } = useToast()
+  const navigate = useNavigate()
+  const [deleting, setDeleting] = useState(false)
+  const [removingItem, setRemovingItem] = useState<{ id: string; name: string } | null>(null)
 
   const catalogue = data.catalogues.find((c) => c.id === id)
   const customer = catalogue ? data.customers.find((c) => c.id === catalogue.customerId) : undefined
   const enquiries = useMemo(() => data.enquiries.filter((e) => e.catalogueId === id), [data, id])
-  const products = useMemo(
-    () => catalogue?.items.map((i) => data.products.find((p) => p.id === i.productId)).filter(Boolean) ?? [],
+  const entries = useMemo(
+    () => (catalogue?.items ?? []).map((item) => ({ item, product: data.products.find((p) => p.id === item.productId) })).filter((e) => e.product),
     [catalogue, data],
   )
+  const products = entries.map((e) => e.product)
 
   if (!catalogue) return <Navigate to="/catalogues" replace />
 
@@ -51,6 +56,9 @@ export default function CatalogueDetailPage() {
             <ExternalLink size={14} /> Open
           </a>
           <button onClick={() => { const win = window.open(link, '_blank'); win?.addEventListener('load', () => win.print()) }} className="flex items-center gap-1.5 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-50"><Printer size={14} /> Export PDF</button>
+          <button onClick={() => setDeleting(true)} data-testid="catalogue-delete" className="flex items-center gap-1.5 rounded-xl border border-red-300 bg-red-50 px-3.5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100">
+            <Trash2 size={14} /> Delete
+          </button>
         </div>
       </div>
 
@@ -67,14 +75,20 @@ export default function CatalogueDetailPage() {
       <div>
         <h2 className="mb-3 text-base font-semibold text-stone-900">Products in this Catalogue ({products.length})</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {products.map((p) => p && (
-            <Link key={p.id} to={`/products/${p.id}`} className="overflow-hidden rounded-xl border border-stone-200 bg-white hover:shadow-md">
-              <div className="aspect-[3/4] bg-stone-100"><ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-full w-full object-cover" /></div>
-              <div className="p-2">
-                <p className="truncate text-xs font-semibold text-stone-800">{p.name}</p>
-                <p className="text-[11px] text-stone-400">{p.code}</p>
-              </div>
-            </Link>
+          {entries.map(({ item, product: p }) => p && (
+            <div key={item.id ?? p.id} className="relative">
+              <Link to={`/products/${p.id}`} className="block overflow-hidden rounded-xl border border-stone-200 bg-white hover:shadow-md">
+                <div className="aspect-[3/4] bg-stone-100"><ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-full w-full object-cover" /></div>
+                <div className="p-2">
+                  <p className="truncate text-xs font-semibold text-stone-800">{p.name}</p>
+                  <p className="text-[11px] text-stone-400">{p.code}</p>
+                </div>
+              </Link>
+              {item.id && (
+                <button type="button" aria-label={`Remove ${p.name} from catalogue`} data-testid="catalogue-item-remove" onClick={() => setRemovingItem({ id: item.id!, name: p.name })}
+                  className="absolute right-1.5 top-1.5 rounded-full bg-white/95 p-1.5 text-stone-600 shadow hover:bg-white hover:text-red-600"><X size={13} /></button>
+              )}
+            </div>
           ))}
         </div>
       </div>
@@ -94,6 +108,15 @@ export default function CatalogueDetailPage() {
             ))}
           </div>
         </div>
+      )}
+      {deleting && (
+        <DeleteDialog open onClose={() => setDeleting(false)} entityLabel="Catalogue" collection="catalogues" id={catalogue.id}
+          deletePath={`/api/v1/catalogues/${catalogue.id}`} onDeleted={async () => { await refreshData(); navigate('/catalogues') }} />
+      )}
+      {removingItem && (
+        <DeleteDialog open onClose={() => setRemovingItem(null)} entityLabel="Catalogue Product" collection="catalogue-items" id={removingItem.id}
+          deletePath={`/api/v1/catalogues/${catalogue.id}/items/${removingItem.id}`} onDeleted={refreshData}
+          labels={{ title: 'Remove from catalogue?', description: `“${removingItem.name}” will be removed from this catalogue. The product itself is not deleted.`, confirm: 'Remove product', success: 'Product removed from catalogue' }} />
       )}
     </div>
   )

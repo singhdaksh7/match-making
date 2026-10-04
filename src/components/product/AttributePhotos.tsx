@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   deleteAttributeImage, fetchProductAttributeImages, reorderAttributeImages, uploadAttributeImages, validateImageFile,
 } from '@/services/api/attributeImages'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import type { Attribute, AttributeValue } from '@/types'
 
 /** One thumbnail. `file` is set while the image is only staged locally (product / value not saved yet). */
@@ -193,6 +194,7 @@ export function AttributePhotos({ sections, state, isPersisted, isEdit }: Props)
 
 function ValueCard({ attrName, value, state, persisted, isEdit }: { attrName: string; value: AttributeValue; state: AttributeImagesState; persisted: boolean; isEdit: boolean }) {
   const list = state.items[value.id] ?? []
+  const [confirmItem, setConfirmItem] = useState<AttrImageItem | null>(null)
   const busy = state.busy[value.id]
   const error = state.errors[value.id]
   const inputId = `attr-image-input-${attrName}-${value.value}`.replace(/\s+/g, '-')
@@ -244,7 +246,7 @@ function ValueCard({ attrName, value, state, persisted, isEdit }: { attrName: st
                 <button type="button" aria-label="Move left" data-testid="attr-image-move-left" disabled={index === 0 || Boolean(busy)} onClick={() => void state.move(value.id, index, -1)} className="flex h-10 w-10 items-center justify-center rounded-lg text-stone-600 hover:bg-stone-100 disabled:opacity-30">
                   <ChevronLeft size={16} />
                 </button>
-                <button type="button" aria-label="Delete image" data-testid="attr-image-delete" disabled={Boolean(busy)} onClick={() => void state.remove(value.id, item)} className="flex h-10 w-10 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-30">
+                <button type="button" aria-label="Delete image" data-testid="attr-image-delete" disabled={Boolean(busy)} onClick={() => (item.file ? void state.remove(value.id, item) : setConfirmItem(item))} className="flex h-10 w-10 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-30">
                   <Trash2 size={15} />
                 </button>
                 <button type="button" aria-label="Move right" data-testid="attr-image-move-right" disabled={index === list.length - 1 || Boolean(busy)} onClick={() => void state.move(value.id, index, 1)} className="flex h-10 w-10 items-center justify-center rounded-lg text-stone-600 hover:bg-stone-100 disabled:opacity-30">
@@ -255,6 +257,15 @@ function ValueCard({ attrName, value, state, persisted, isEdit }: { attrName: st
           ))}
         </div>
       )}
+      <ConfirmDialog
+        open={Boolean(confirmItem)}
+        danger
+        title="Delete image?"
+        description={`This ${attrName} ${value.value} image will be permanently deleted. This action cannot be undone.`}
+        confirmLabel="Delete image"
+        onCancel={() => setConfirmItem(null)}
+        onConfirm={() => { const item = confirmItem; setConfirmItem(null); if (item) void state.remove(value.id, item) }}
+      />
     </div>
   )
 }

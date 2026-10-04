@@ -1,6 +1,6 @@
 import { FolderTree, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { DeleteDialog } from '@/components/ui/DeleteDialog'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ImageWithFallback } from '@/components/ui/ImageWithFallback'
 import { Modal } from '@/components/ui/Modal'
@@ -14,7 +14,7 @@ import { slugify } from '@/utils/format'
 import { totalStockForProduct, variantsForProduct } from '@/utils/selectors'
 
 export default function CategoriesPage() {
-  const { data, addCategory, updateCategory, deleteCategory } = useAppData()
+  const { data, addCategory, updateCategory, refreshData } = useAppData()
   const { showToast } = useToast()
   const [query, setQuery] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
@@ -107,7 +107,7 @@ export default function CategoriesPage() {
                 </div>
                 <div className="flex items-center justify-between px-4 py-3">
                   <button onClick={() => openEdit(cat)} className="text-xs font-semibold text-[#7a5230] hover:underline">Edit</button>
-                  <button onClick={() => setDeleting(cat)} className="text-stone-400 hover:text-red-500"><Trash2 size={14} /></button>
+                  <button onClick={() => setDeleting(cat)} aria-label={`Delete ${cat.name}`} data-testid="category-delete" className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-stone-500 hover:bg-red-50 hover:text-red-600"><Trash2 size={14} /> Delete</button>
                 </div>
               </div>
             )
@@ -141,15 +141,17 @@ export default function CategoriesPage() {
         </div>
       </Modal>
 
-      <ConfirmDialog
-        open={!!deleting}
-        title={`Delete "${deleting?.name}"?`}
-        description="This will remove the category. Products in this category will remain but lose their category assignment."
-        confirmLabel="Delete"
-        danger
-        onCancel={() => setDeleting(null)}
-        onConfirm={() => { if (deleting) { deleteCategory(deleting.id); showToast('Category deleted'); setDeleting(null) } }}
-      />
+      {deleting && (
+        <DeleteDialog
+          open
+          onClose={() => setDeleting(null)}
+          entityLabel="Category"
+          collection="categories"
+          id={deleting.id}
+          deletePath={`/api/v1/categories/${deleting.id}`}
+          onDeleted={refreshData}
+        />
+      )}
     </div>
   )
 }

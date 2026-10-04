@@ -1,6 +1,7 @@
-import { ImageIcon, Plus, Sliders, X } from 'lucide-react'
+import { ImageIcon, Plus, Sliders, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import { ColorSwatch } from '@/components/ui/ColorSwatch'
+import { DeleteDialog } from '@/components/ui/DeleteDialog'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Modal } from '@/components/ui/Modal'
 import { useAppData } from '@/context/AppDataContext'
@@ -8,8 +9,10 @@ import { useToast } from '@/context/ToastContext'
 import type { Attribute, AttributeType } from '@/types'
 
 export default function AttributesPage() {
-  const { data, addAttribute, updateAttribute, addAttributeValue, deleteAttributeValue, updateCategory } = useAppData()
+  const { data, addAttribute, updateAttribute, addAttributeValue, updateCategory, refreshData } = useAppData()
   const { showToast } = useToast()
+  const [deletingAttr, setDeletingAttr] = useState<Attribute | null>(null)
+  const [deletingValue, setDeletingValue] = useState<{ attribute: Attribute; valueId: string } | null>(null)
   const [expanded, setExpanded] = useState<string | null>(data.attributes[0]?.id ?? null)
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
@@ -125,7 +128,7 @@ export default function AttributesPage() {
                       <span key={v.id} className="flex items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 py-1 pl-2.5 pr-1.5 text-xs font-medium text-stone-700">
                         {attr.type === 'color' && <ColorSwatch hex={v.hex} name={v.value} size="sm" />}
                         {v.value}
-                        <button onClick={() => deleteAttributeValue(attr.id, v.id).catch((error) => showToast(error instanceof Error ? error.message : 'Could not delete value', 'error'))} className="rounded-full p-0.5 text-stone-400 hover:bg-stone-200 hover:text-stone-700">
+                        <button onClick={() => setDeletingValue({ attribute: attr, valueId: v.id })} aria-label={`Delete value ${v.value}`} data-testid="attr-value-delete" className="rounded-full p-0.5 text-stone-400 hover:bg-stone-200 hover:text-stone-700">
                           <X size={11} />
                         </button>
                       </span>
@@ -140,6 +143,11 @@ export default function AttributesPage() {
                       className="flex-1 rounded-xl border border-stone-200 px-3 py-2 text-sm"
                     />
                     <button onClick={() => handleAddValue(attr)} className="rounded-xl bg-stone-900 px-3.5 py-2 text-xs font-semibold text-white">Add</button>
+                  </div>
+                  <div className="mt-4 flex justify-end border-t border-stone-100 pt-3">
+                    <button onClick={() => setDeletingAttr(attr)} data-testid="attr-delete" className="flex items-center gap-1.5 rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50">
+                      <Trash2 size={13} /> Delete attribute
+                    </button>
                   </div>
                 </div>
               )}
@@ -187,6 +195,14 @@ export default function AttributesPage() {
           ))}
         </div>
       </Modal>
+      {deletingAttr && (
+        <DeleteDialog open onClose={() => setDeletingAttr(null)} entityLabel="Attribute" collection="attributes" id={deletingAttr.id}
+          deletePath={`/api/v1/attributes/${deletingAttr.id}`} onDeleted={refreshData} />
+      )}
+      {deletingValue && (
+        <DeleteDialog open onClose={() => setDeletingValue(null)} entityLabel="Value" collection="attribute-values" id={deletingValue.valueId}
+          deletePath={`/api/v1/attributes/${deletingValue.attribute.id}/values/${deletingValue.valueId}`} onDeleted={refreshData} />
+      )}
     </div>
   )
 }

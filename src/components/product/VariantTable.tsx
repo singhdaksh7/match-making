@@ -1,4 +1,4 @@
-import { Boxes } from 'lucide-react'
+import { Boxes, Trash2 } from 'lucide-react'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import type { ProductVariant } from '@/types'
 import { formatINR } from '@/utils/format'
@@ -7,9 +7,10 @@ interface Props {
   variants: ProductVariant[]
   onAdjustStock?: (variant: ProductVariant) => void
   onEdit?: (variant: ProductVariant) => void
+  onDelete?: (variant: ProductVariant) => void
 }
 
-export function VariantTable({ variants, onAdjustStock, onEdit }: Props) {
+export function VariantTable({ variants, onAdjustStock, onEdit, onDelete }: Props) {
   if (variants.length === 0) {
     return (
       <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-stone-200 py-10 text-center text-stone-400">
@@ -48,7 +49,7 @@ export function VariantTable({ variants, onAdjustStock, onEdit }: Props) {
                   <p className="text-sm font-bold text-stone-900">{formatINR(v.price)}</p>
                   <p className="text-xs text-stone-500">{v.stock} pcs in stock</p>
                 </div>
-                {(onAdjustStock || onEdit) && (
+                {(onAdjustStock || onEdit || onDelete) && (
                   <div className="flex gap-2">
                     {onAdjustStock && (
                       <button
@@ -56,6 +57,16 @@ export function VariantTable({ variants, onAdjustStock, onEdit }: Props) {
                         className="rounded-xl border border-stone-200 px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 active:bg-stone-100"
                       >
                         Adjust Stock
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button
+                        onClick={() => onDelete(v)}
+                        aria-label={`Delete variant ${v.sku}`}
+                        data-testid="variant-delete"
+                        className="flex items-center gap-1 rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50"
+                      >
+                        <Trash2 size={13} /> Delete
                       </button>
                     )}
                   </div>
@@ -76,7 +87,7 @@ export function VariantTable({ variants, onAdjustStock, onEdit }: Props) {
               <th className="px-4 py-3">Price</th>
               <th className="px-4 py-3">Stock</th>
               <th className="px-4 py-3">Status</th>
-              {(onAdjustStock || onEdit) && <th className="px-4 py-3" />}
+              {(onAdjustStock || onEdit || onDelete) && <th className="px-4 py-3" />}
             </tr>
           </thead>
           <tbody>
@@ -89,11 +100,16 @@ export function VariantTable({ variants, onAdjustStock, onEdit }: Props) {
                   <td className="px-4 py-3 font-semibold text-stone-800">{formatINR(v.price)}</td>
                   <td className="px-4 py-3 text-stone-700">{v.stock}</td>
                   <td className="px-4 py-3"><StatusBadge status={stockStatus} /></td>
-                  {(onAdjustStock || onEdit) && (
+                  {(onAdjustStock || onEdit || onDelete) && (
                     <td className="whitespace-nowrap px-4 py-3 text-right">
                       {onAdjustStock && (
                         <button onClick={() => onAdjustStock(v)} className="rounded-lg border border-stone-200 px-2.5 py-1 text-xs font-semibold text-stone-600 hover:bg-stone-100">
                           Adjust
+                        </button>
+                      )}
+                      {onDelete && (
+                        <button onClick={() => onDelete(v)} aria-label={`Delete variant ${v.sku}`} data-testid="variant-delete" className="ml-2 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50">
+                          Delete
                         </button>
                       )}
                     </td>

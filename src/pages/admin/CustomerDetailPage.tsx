@@ -1,18 +1,23 @@
 import {
   ArrowLeft, BookOpen, Building2, Edit3, Mail, MapPin, MessageSquare,
-  Phone, Plus, Clock,
+  Phone, Plus, Clock, Trash2,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { DeleteDialog } from '@/components/ui/DeleteDialog'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { useAppData } from '@/context/AppDataContext'
+import { useToast } from '@/context/ToastContext'
 import { formatDate, formatINR, timeAgo } from '@/utils/format'
 
 type Tab = 'overview' | 'catalogues' | 'enquiries' | 'activity'
 
 export default function CustomerDetailPage() {
   const { id } = useParams()
-  const { data } = useAppData()
+  const { data, archiveCustomer, refreshData } = useAppData()
+  const navigate = useNavigate()
+  const { showToast } = useToast()
+  const [deleting, setDeleting] = useState(false)
   const [tab, setTab] = useState<Tab>('overview')
 
   const customer = data.customers.find((c) => c.id === id)
@@ -47,6 +52,9 @@ export default function CustomerDetailPage() {
           <Link to={`/customers/${customer.id}/edit`} className="flex items-center gap-1.5 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-50">
             <Edit3 size={14} /> Edit
           </Link>
+          <button onClick={() => setDeleting(true)} data-testid="customer-delete" className="flex items-center gap-1.5 rounded-xl border border-red-300 bg-red-50 px-3.5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100">
+            <Trash2 size={14} /> Delete
+          </button>
           <Link to={`/catalogues/new?customer=${customer.id}`} className="flex items-center gap-1.5 rounded-xl bg-stone-900 px-3.5 py-2.5 text-sm font-semibold text-white hover:bg-stone-800">
             <Plus size={14} /> Create Catalogue
           </Link>
@@ -137,6 +145,18 @@ export default function CustomerDetailPage() {
               </div>
             ))}
         </div>
+      )}
+      {deleting && (
+        <DeleteDialog
+          open
+          onClose={() => setDeleting(false)}
+          entityLabel="Customer"
+          collection="customers"
+          id={customer.id}
+          deletePath={`/api/v1/customers/${customer.id}`}
+          onDeleted={async () => { await refreshData(); navigate('/customers') }}
+          archive={customer.status === 'inactive' ? undefined : { label: 'Archive instead', onArchive: async () => { await archiveCustomer(customer.id); showToast('Customer archived'); navigate('/customers') } }}
+        />
       )}
     </div>
   )

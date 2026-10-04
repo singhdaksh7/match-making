@@ -1,5 +1,7 @@
-import { ArrowLeft, Check, MessageCircle, Phone } from 'lucide-react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { ArrowLeft, Check, MessageCircle, Phone, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { DeleteDialog } from '@/components/ui/DeleteDialog'
 import { ImageWithFallback } from '@/components/ui/ImageWithFallback'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { useAppData } from '@/context/AppDataContext'
@@ -12,8 +14,10 @@ const FLOW: EnquiryStatus[] = ['New', 'Contacted', 'Negotiating', 'Converted', '
 
 export default function EnquiryDetailPage() {
   const { id } = useParams()
-  const { data, updateEnquiryStatus } = useAppData()
+  const { data, updateEnquiryStatus, refreshData } = useAppData()
   const { showToast } = useToast()
+  const navigate = useNavigate()
+  const [deleting, setDeleting] = useState(false)
 
   const enquiry = data.enquiries.find((e) => e.id === id)
   if (!enquiry) return <Navigate to="/enquiries" replace />
@@ -32,6 +36,11 @@ export default function EnquiryDetailPage() {
       <Link to="/enquiries" className="flex items-center gap-1.5 text-sm font-medium text-stone-500 hover:text-stone-800">
         <ArrowLeft size={16} /> Back to Enquiries
       </Link>
+      <div className="flex justify-end">
+        <button onClick={() => setDeleting(true)} data-testid="enquiry-delete" className="flex items-center gap-1.5 rounded-xl border border-red-200 px-3.5 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
+          <Trash2 size={14} /> Delete enquiry
+        </button>
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
@@ -131,6 +140,10 @@ export default function EnquiryDetailPage() {
           </div>
         </div>
       </div>
+      {deleting && (
+        <DeleteDialog open onClose={() => setDeleting(false)} entityLabel="Enquiry" collection="enquiries" id={enquiry.id}
+          deletePath={`/api/v1/enquiries/${enquiry.id}`} onDeleted={async () => { await refreshData(); navigate('/enquiries') }} />
+      )}
     </div>
   )
 }

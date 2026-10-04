@@ -176,18 +176,6 @@ export async function assertAllowedValuesNotInUse(productId: string, nextAllowed
   }
 }
 
-export async function assertAttributeValueUnused(businessId: string, valueId: string) {
-  const value = await prisma.attributeValue.findFirst({
-    where: { id: valueId, attribute: { businessId } },
-    include: { _count: { select: { variantValues: true, productValues: true } } },
-  })
-  if (!value) throw new HttpError(404, 'Attribute value not found', 'NOT_FOUND')
-  if (value._count.variantValues > 0 || value._count.productValues > 0) {
-    throw new HttpError(409, 'This attribute value cannot be deleted because it is used by products or variants.', 'CONFLICT')
-  }
-  return value
-}
-
 export function isUniqueConstraint(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'P2002'
 }

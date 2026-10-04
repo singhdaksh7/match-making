@@ -1,7 +1,7 @@
 import { BookOpen, Copy, Eye, MessageCircle, MoreVertical, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { DeleteDialog } from '@/components/ui/DeleteDialog'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { StatusBadge } from '@/components/ui/StatusBadge'
@@ -12,7 +12,7 @@ import { formatDate } from '@/utils/format'
 import { customerName, effectiveCatalogueStatus, waCatalogueLink } from '@/utils/selectors'
 
 export default function CataloguesPage() {
-  const { data, duplicateCatalogue, setCatalogueStatus, deleteCatalogue } = useAppData()
+  const { data, duplicateCatalogue, setCatalogueStatus, refreshData } = useAppData()
   const { showToast } = useToast()
   const [query, setQuery] = useState('')
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
@@ -77,7 +77,7 @@ export default function CataloguesPage() {
                         </a>
                         <MenuItem onClick={() => { duplicateCatalogue(c.id); showToast('Catalogue duplicated'); setMenuOpen(null) }} icon={Copy} label="Duplicate" />
                         <MenuItem onClick={() => { setCatalogueStatus(c.id, c.status === 'disabled' ? 'active' : 'disabled'); setMenuOpen(null); showToast(c.status === 'disabled' ? 'Catalogue enabled' : 'Catalogue disabled') }} icon={Eye} label={c.status === 'disabled' ? 'Enable' : 'Disable'} />
-                        <button onClick={() => { setDeleting(c); setMenuOpen(null) }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50">
+                        <button onClick={() => { setDeleting(c); setMenuOpen(null) }} data-testid="catalogue-delete" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50">
                           Delete
                         </button>
                       </div>
@@ -90,15 +90,17 @@ export default function CataloguesPage() {
         </div>
       )}
 
-      <ConfirmDialog
-        open={!!deleting}
-        title="Delete this catalogue?"
-        description="The shareable link will stop working immediately. This cannot be undone."
-        confirmLabel="Delete"
-        danger
-        onCancel={() => setDeleting(null)}
-        onConfirm={() => { if (deleting) { deleteCatalogue(deleting.id); showToast('Catalogue deleted'); setDeleting(null) } }}
-      />
+      {deleting && (
+        <DeleteDialog
+          open
+          onClose={() => setDeleting(null)}
+          entityLabel="Catalogue"
+          collection="catalogues"
+          id={deleting.id}
+          deletePath={`/api/v1/catalogues/${deleting.id}`}
+          onDeleted={refreshData}
+        />
+      )}
     </div>
   )
 }

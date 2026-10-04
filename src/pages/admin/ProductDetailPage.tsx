@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ColorSwatch } from '@/components/ui/ColorSwatch'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { DeleteDialog } from '@/components/ui/DeleteDialog'
 import { ImageWithFallback } from '@/components/ui/ImageWithFallback'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { StockAdjustModal } from '@/components/inventory/StockAdjustModal'
@@ -19,11 +20,13 @@ import { categoryName, totalStockForProduct, variantsForProduct } from '@/utils/
 export default function ProductDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { data, archiveProduct, duplicateProduct } = useAppData()
+  const { data, archiveProduct, duplicateProduct, refreshData } = useAppData()
   const { showToast } = useToast()
   const [activeImage, setActiveImage] = useState(0)
   const [adjustingVariant, setAdjustingVariant] = useState<ProductVariant | null>(null)
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deletingVariant, setDeletingVariant] = useState<ProductVariant | null>(null)
 
   const product = data.products.find((p) => p.id === id)
   const variants = useMemo(() => (product ? variantsForProduct(data, product.id) : []), [data, product])
@@ -57,6 +60,13 @@ export default function ProductDetailPage() {
             className="flex h-11 items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3.5 text-xs font-semibold text-red-600 hover:bg-red-50 active:scale-[0.98] sm:text-sm"
           >
             <Trash2 size={14} /> Archive
+          </button>
+          <button
+            onClick={() => setDeleting(true)}
+            data-testid="product-delete"
+            className="flex h-11 items-center gap-1.5 rounded-xl border border-red-300 bg-red-50 px-3.5 text-xs font-semibold text-red-700 hover:bg-red-100 active:scale-[0.98] sm:text-sm"
+          >
+            <Trash2 size={14} /> Delete
           </button>
           <Link to={`/products/${product.id}/edit`} className="flex h-11 items-center gap-1.5 rounded-xl bg-stone-900 px-4 text-xs font-semibold text-white hover:bg-stone-800 active:scale-[0.98] sm:text-sm">
             <Edit3 size={14} /> Edit Product
@@ -128,7 +138,7 @@ export default function ProductDetailPage() {
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold text-stone-900">Variants ({variants.length})</h2>
         </div>
-        <VariantTable variants={variants} onAdjustStock={setAdjustingVariant} />
+        <VariantTable variants={variants} onAdjustStock={setAdjustingVariant} onDelete={setDeletingVariant} />
       </div>
 
       {inventoryHistory.length > 0 && (
@@ -151,6 +161,29 @@ export default function ProductDetailPage() {
       )}
 
       <StockAdjustModal variant={adjustingVariant} onClose={() => setAdjustingVariant(null)} />
+      {deleting && (
+        <DeleteDialog
+          open
+          onClose={() => setDeleting(false)}
+          entityLabel="Product"
+          collection="products"
+          id={product.id}
+          deletePath={`/api/v1/products/${product.id}`}
+          onDeleted={async () => { await refreshData(); navigate('/products') }}
+          archive={product.status === 'archived' ? undefined : { label: 'Archive instead', onArchive: async () => { await archiveProduct(product.id); showToast('Product archived'); navigate('/products') } }}
+        />
+      )}
+      {deletingVariant && (
+        <DeleteDialog
+          open
+          onClose={() => setDeletingVariant(null)}
+          entityLabel="Variant"
+          collection="variants"
+          id={deletingVariant.id}
+          deletePath={`/api/v1/products/${product.id}/variants/${deletingVariant.id}`}
+          onDeleted={refreshData}
+        />
+      )}
       <ConfirmDialog
         open={confirmArchive}
         title="Archive this product?"

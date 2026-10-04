@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, Check, Plus, Star, Trash2, UploadCloud } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { DeleteDialog } from '@/components/ui/DeleteDialog'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { AttributePhotos, useAttributeImages } from '@/components/product/AttributePhotos'
 import { ColorSwatch } from '@/components/ui/ColorSwatch'
@@ -30,7 +31,7 @@ export default function ProductFormPage() {
   const { id } = useParams()
   const isEdit = !!id
   const navigate = useNavigate()
-  const { data, addProduct, updateProduct, addVariant } = useAppData()
+  const { data, addProduct, updateProduct, addVariant, refreshData } = useAppData()
   const { showToast } = useToast()
   const [saving, setSaving] = useState(false)
 
@@ -42,6 +43,8 @@ export default function ProductFormPage() {
   const [code, setCode] = useState(existing?.code ?? '')
   const [description, setDescription] = useState(existing?.description ?? '')
   const [media, setMedia] = useState<ProductMedia[]>(existing?.media ?? [])
+  const [deletingMedia, setDeletingMedia] = useState<ProductMedia | null>(null)
+  const persistedMediaIds = useMemo(() => new Set((existing?.media ?? []).map((m) => m.id)), [existing])
   const [selectedValueIds, setSelectedValueIds] = useState<Record<string, string[]>>(() => {
     if (!existing) return {}
     const grouped: Record<string, string[]> = {}
@@ -216,6 +219,10 @@ export default function ProductFormPage() {
 
       if (isEdit) {
         await updateProduct(productId, product)
+        // images uploaded during this edit exist only in R2 until they are attached to the product
+        for (const item of media.filter((m) => !persistedMediaIds.has(m.id) && m.objectKey)) {
+          await apiClient.post(`/api/v1/products/${productId}/media`, { objectKey: item.objectKey, mimeType: item.mimeType ?? 'image/jpeg' })
+        }
         for (const variant of variants) await addVariant({ ...variant, productId })
         const failures = await flushAttributePhotos(productId)
         if (failures) {
@@ -422,10 +429,16 @@ export default function ProductFormPage() {
                           <Star size={13} />
                         </button>
                       )}
-                      <button onClick={() => setMedia((prev) => prev.filter((mediaItem) => mediaItem.id !== item.id))} className="rounded-full bg-white p-1.5 text-red-600">
-                        <Trash2 size={13} />
-                      </button>
                     </div>
+                    <button
+                      type="button"
+                      aria-label="Delete image"
+                      data-testid="media-delete"
+                      onClick={() => (persistedMediaIds.has(item.id) ? setDeletingMedia(item) : setMedia((prev) => prev.filter((mediaItem) => mediaItem.id !== item.id)))}
+                      className="absolute right-1.5 top-1.5 rounded-full bg-white/95 p-1.5 text-red-600 shadow hover:bg-white"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -501,6 +514,17 @@ export default function ProductFormPage() {
           setPendingDeselect(null)
         }}
       />
+      {deletingMedia && (
+        <DeleteDialog
+          open
+          onClose={() => setDeletingMedia(null)}
+          entityLabel="Image"
+          collection="media"
+          id={deletingMedia.id}
+          deletePath={`/api/v1/products/${id}/media/${deletingMedia.id}`}
+          onDeleted={async () => { setMedia((prev) => prev.filter((m) => m.id !== deletingMedia.id)); await refreshData() }}
+        />
+      )}
     </div>
   )
 }

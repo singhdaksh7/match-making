@@ -9,18 +9,31 @@ import { test, expect, type Page } from '@playwright/test'
 //   E2E_BASE_URL         default http://127.0.0.1:8088
 //   E2E_ADMIN_EMAIL      default admin@vastraa.test
 //   E2E_ADMIN_PASSWORD   default ChangeMe123!   (the integration-test fixture owner)
-//   E2E_CUSTOMER_NAME    default "Raj Fashion House"
-//   E2E_PRODUCT_NAME     default "Floral Rayon Straight Kurti"
+// The test creates its own uniquely named customer, product and catalogue through the API and removes them afterwards.
 const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8088'
 const adminEmail = process.env.E2E_ADMIN_EMAIL ?? 'admin@vastraa.test'
 const adminPassword = process.env.E2E_ADMIN_PASSWORD ?? 'ChangeMe123!'
-const customerName = process.env.E2E_CUSTOMER_NAME ?? 'Raj Fashion House'
-const productName = process.env.E2E_PRODUCT_NAME ?? 'Floral Rayon Straight Kurti'
+const tag = Date.now().toString(36)
+const customerName = `Raj Fashion House ${tag}`
+const productName = `Floral Rayon Kurti ${tag}`
+
+async function seed(page: Page) {
+  const api = page.request
+  const make = async (path: string, data: unknown) => { const r = await api.post(`${baseURL}/api/v1${path}`, { data }); expect(r.status(), path).toBeLessThan(300); return (await r.json()).data }
+  const attribute = await make('/attributes', { name: `Fabric ${tag}`, kind: 'SELECT', values: [{ value: 'Rayon' }] })
+  const category = await make('/categories', { name: `Kurtis ${tag}`, slug: `kurtis-${tag}`, attributeIds: [attribute.id] })
+  const product = await make('/products', { categoryId: category.id, code: `LNK-${tag}`, name: productName, basePrice: 100, moq: 1, attributeIds: [attribute.id], allowedAttributeValueIds: [attribute.values[0].id],
+    variants: [{ sku: `LNK-${tag}-R`, price: 100, stock: 5, attributeValueIds: [attribute.values[0].id] }] })
+  const customer = await make('/customers', { businessName: customerName, contactPerson: 'Raj', phone: '+919800000008', type: 'WHOLESALER' })
+  return { attribute, category, product, customer }
+}
 
 test.beforeAll(() => {
   const { hostname } = new URL(baseURL)
   if (!['127.0.0.1', 'localhost'].includes(hostname)) throw new Error(`Refusing to create test catalogues on non-local host "${hostname}".`)
 })
+
+let seeded: Awaited<ReturnType<typeof seed>>
 
 async function createCatalogueThroughWizard(page: Page, title: string) {
   await page.goto(`${baseURL}/login`)
@@ -28,6 +41,7 @@ async function createCatalogueThroughWizard(page: Page, title: string) {
   await page.getByPlaceholder('••••••••').fill(adminPassword)
   await page.getByRole('button', { name: /sign in|log in/i }).click()
   await expect(page).toHaveURL(/\/dashboard/)
+  seeded = await seed(page)
 
   await page.goto(`${baseURL}/catalogues/new`)
   const next = page.getByRole('button', { name: /^Continue/ })
@@ -65,7 +79,7 @@ test('wizard-generated link opens the real customer catalogue for an anonymous v
   expect(created?.token).toBe(identifier)
 
   // The wizard's success screen shows the real customer/catalogue, not demo placeholders.
-  await expect(adminPage.getByText('Raj Fashion House').first()).toBeVisible()
+  await expect(adminPage.getByText(customerName).first()).toBeVisible()
   await expect(adminPage.getByText('September New Arrivals', { exact: true })).toHaveCount(0)
 
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
@@ -93,5 +107,9 @@ test('wizard-generated link opens the real customer catalogue for an anonymous v
 
   // Cleanup the disposable catalogue created by this test.
   await adminPage.request.delete(`${baseURL}/api/v1/catalogues/${created.id}`)
+  await adminPage.request.delete(`${baseURL}/api/v1/products/${seeded.product.id}`)
+  await adminPage.request.delete(`${baseURL}/api/v1/customers/${seeded.customer.id}`)
+  await adminPage.request.delete(`${baseURL}/api/v1/categories/${seeded.category.id}`)
+  await adminPage.request.delete(`${baseURL}/api/v1/attributes/${seeded.attribute.id}`)
   await admin.close()
 })

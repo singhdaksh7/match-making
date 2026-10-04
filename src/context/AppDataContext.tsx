@@ -30,12 +30,10 @@ interface AppDataContextValue {
   // categories
   addCategory: (category: Category) => Promise<void> | void
   updateCategory: (id: string, patch: Partial<Category>) => Promise<void> | void
-  deleteCategory: (id: string) => Promise<void> | void
   // attributes
   addAttribute: (attribute: Attribute) => Promise<void> | void
   updateAttribute: (id: string, patch: Partial<Attribute>) => Promise<void> | void
   addAttributeValue: (attributeId: string, value: AttributeValue) => Promise<void> | void
-  deleteAttributeValue: (attributeId: string, valueId: string) => Promise<void>
   // customers
   addCustomer: (customer: Customer) => void
   updateCustomer: (id: string, patch: Partial<Customer>) => void
@@ -46,7 +44,8 @@ interface AppDataContextValue {
   updateCatalogue: (id: string, patch: Partial<Catalogue>) => void
   duplicateCatalogue: (id: string) => void
   setCatalogueStatus: (id: string, status: CatalogueStatus) => void
-  deleteCatalogue: (id: string) => void
+  /** Reloads every list from the API (used after server-side deletes). */
+  refreshData: () => Promise<void>
   recordCatalogueVisit: (slug: string) => void
   // enquiries
   submitEnquiry: (enquiry: Enquiry) => Promise<{ reference?: string }>
@@ -196,10 +195,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     await apiClient.patch(`/api/v1/categories/${id}`, { ...(patch.name !== undefined ? { name: patch.name } : {}), ...(patch.slug !== undefined ? { slug: patch.slug } : {}), ...(patch.status !== undefined ? { status: patch.status.toUpperCase() } : {}), ...(patch.attributeIds !== undefined ? { attributeIds: patch.attributeIds } : {}) })
     await refresh()
   }, [refresh])
-  const deleteCategory = useCallback(async (id: string) => {
-    await apiClient.delete(`/api/v1/categories/${id}`).catch(() => undefined)
-    await refresh()
-  }, [refresh])
 
   const addAttribute = useCallback(async (attribute: Attribute) => {
     const kind = attribute.type === 'color' ? 'COLOR' : attribute.type === 'size' ? 'SIZE' : 'TEXT'
@@ -212,10 +207,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, [refresh])
   const addAttributeValue = useCallback(async (attributeId: string, value: AttributeValue) => {
     await apiClient.post(`/api/v1/attributes/${attributeId}/values`, { value: value.value, hex: value.hex })
-    await refresh()
-  }, [refresh])
-  const deleteAttributeValue = useCallback(async (attributeId: string, valueId: string) => {
-    await apiClient.delete(`/api/v1/attributes/${attributeId}/values/${valueId}`)
     await refresh()
   }, [refresh])
 
@@ -236,7 +227,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     await refresh()
   }, [data.catalogues, refresh])
   const setCatalogueStatus = useCallback(async (id: string, status: CatalogueStatus) => { await apiClient.patch(`/api/v1/catalogues/${id}`, { status: status.toUpperCase() }); await refresh() }, [refresh])
-  const deleteCatalogue = useCallback(async (id: string) => { await apiClient.delete(`/api/v1/catalogues/${id}`); await refresh() }, [refresh])
   const recordCatalogueVisit = useCallback((slug: string) => {
     setData((d) => ({
       ...d,
@@ -300,17 +290,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     data,
     addProduct, updateProduct, archiveProduct, duplicateProduct,
     addVariant, updateVariant, adjustStock, incrementProductViews,
-    addCategory, updateCategory, deleteCategory,
-    addAttribute, updateAttribute, addAttributeValue, deleteAttributeValue,
+    addCategory, updateCategory,
+    addAttribute, updateAttribute, addAttributeValue,
     addCustomer, updateCustomer, archiveCustomer, addCollection,
-    createCatalogue, updateCatalogue, duplicateCatalogue, setCatalogueStatus, deleteCatalogue, recordCatalogueVisit,
+    createCatalogue, updateCatalogue, duplicateCatalogue, setCatalogueStatus, recordCatalogueVisit, refreshData: refresh,
     submitEnquiry, updateEnquiryStatus,
     markNotificationRead, markAllNotificationsRead,
     updateSettings, resetDemoData,
   }), [data, addProduct, updateProduct, archiveProduct, duplicateProduct, addVariant, updateVariant,
-    adjustStock, incrementProductViews, addCategory, updateCategory, deleteCategory, addAttribute,
-    updateAttribute, addAttributeValue, deleteAttributeValue, addCustomer, updateCustomer, archiveCustomer, addCollection,
-    createCatalogue, updateCatalogue, duplicateCatalogue, setCatalogueStatus, deleteCatalogue,
+    adjustStock, incrementProductViews, addCategory, updateCategory, addAttribute,
+    updateAttribute, addAttributeValue, addCustomer, updateCustomer, archiveCustomer, addCollection,
+    createCatalogue, updateCatalogue, duplicateCatalogue, setCatalogueStatus, refresh,
     recordCatalogueVisit, submitEnquiry, updateEnquiryStatus, markNotificationRead,
     markAllNotificationsRead, updateSettings, resetDemoData])
 

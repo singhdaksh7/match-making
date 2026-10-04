@@ -74,6 +74,9 @@ export interface ProductMedia {
   id: string
   url: string
   isPrimary: boolean
+  /** Only on images uploaded in the current form session (not yet attached to a saved product). */
+  objectKey?: string
+  mimeType?: string
 }
 
 /** Dynamic key-value bag, e.g. { fabric: "Rayon", color: "Maroon", size: "XL" } */
@@ -183,6 +186,8 @@ export interface CatalogueItemVariantSelection {
 }
 
 export interface CatalogueItem {
+  /** Server id of the catalogue entry (needed to remove it). */
+  id?: string
   productId: string
   variantFilter: CatalogueItemVariantSelection
   allVariants: boolean

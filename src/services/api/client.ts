@@ -4,11 +4,14 @@ export class ApiError extends Error {
   readonly status: number
   readonly code: ApiErrorCode
   readonly fields?: Record<string, string>
-  constructor(status: number, code: ApiErrorCode, message: string, fields?: Record<string, string>) {
+  /** Structured server details, e.g. the dependencies that block a delete. */
+  readonly details?: unknown
+  constructor(status: number, code: ApiErrorCode, message: string, fields?: Record<string, string>, details?: unknown) {
     super(message)
     this.status = status
     this.code = code
     this.fields = fields
+    this.details = details
   }
 }
 
@@ -36,8 +39,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       headers: { ...(init.body && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
     })
     if (response.status === 204) return undefined as T
-    const body = await response.json().catch(() => ({})) as { data?: T; error?: { code?: string; message?: string; fields?: Record<string, string> } }
-    if (!response.ok) throw new ApiError(response.status, errorCode(response.status, body.error?.code), body.error?.message ?? 'Request failed.', body.error?.fields)
+    const body = await response.json().catch(() => ({})) as { data?: T; error?: { code?: string; message?: string; fields?: Record<string, string>; details?: unknown } }
+    if (!response.ok) throw new ApiError(response.status, errorCode(response.status, body.error?.code), body.error?.message ?? 'Request failed.', body.error?.fields, body.error?.details)
     return (body.data ?? body) as T
   } catch (error) {
     if (error instanceof ApiError) throw error
