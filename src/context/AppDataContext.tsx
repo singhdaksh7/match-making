@@ -42,7 +42,7 @@ interface AppDataContextValue {
   archiveCustomer: (id: string) => void
   addCollection: (collection: Collection) => void
   // catalogues
-  createCatalogue: (catalogue: Catalogue) => void
+  createCatalogue: (catalogue: Catalogue) => Promise<Catalogue>
   updateCatalogue: (id: string, patch: Partial<Catalogue>) => void
   duplicateCatalogue: (id: string) => void
   setCatalogueStatus: (id: string, status: CatalogueStatus) => void
@@ -227,7 +227,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setData((d) => ({ ...d, collections: [collection, ...d.collections] }))
   }, [])
 
-  const createCatalogue = useCallback(async (catalogue: Catalogue) => { await apiClient.post('/api/v1/catalogues', { customerId: catalogue.customerId || undefined, title: catalogue.name, message: catalogue.message, expiresAt: catalogue.expiresAt || undefined, status: catalogue.status.toUpperCase(), showPrice: catalogue.settings.showWholesalePrice, showExactStock: catalogue.settings.showExactStock, showAvailability: catalogue.settings.showAvailability, showMOQ: catalogue.settings.showMOQ, allowSelection: catalogue.settings.allowProductSelection, allowEnquiry: catalogue.settings.allowEnquiry, allowImageDownload: catalogue.settings.allowImageDownload, priceAdjustmentPct: catalogue.settings.priceAdjustmentValue, pin: catalogue.settings.pin, items: catalogue.items.map((item) => ({ productId: item.productId })) }); await refresh() }, [refresh])
+  const createCatalogue = useCallback(async (catalogue: Catalogue): Promise<Catalogue> => { const created = await apiClient.post<any>('/api/v1/catalogues', { customerId: catalogue.customerId || undefined, title: catalogue.name, message: catalogue.message, expiresAt: catalogue.expiresAt || undefined, status: catalogue.status.toUpperCase(), showPrice: catalogue.settings.showWholesalePrice, showExactStock: catalogue.settings.showExactStock, showAvailability: catalogue.settings.showAvailability, showMOQ: catalogue.settings.showMOQ, allowSelection: catalogue.settings.allowProductSelection, allowEnquiry: catalogue.settings.allowEnquiry, allowImageDownload: catalogue.settings.allowImageDownload, priceAdjustmentPct: catalogue.settings.priceAdjustmentValue, pin: catalogue.settings.pin, items: catalogue.items.map((item) => ({ productId: item.productId })) }); await refresh(); return backendCatalogueToFrontend(created) }, [refresh])
   const updateCatalogue = useCallback(async (id: string, patch: Partial<Catalogue>) => { await apiClient.patch(`/api/v1/catalogues/${id}`, { ...(patch.name ? { title: patch.name } : {}), ...(patch.message !== undefined ? { message: patch.message } : {}), ...(patch.status ? { status: patch.status.toUpperCase() } : {}) }); await refresh() }, [refresh])
   const duplicateCatalogue = useCallback(async (id: string) => {
     const source = data.catalogues.find((c) => c.id === id)

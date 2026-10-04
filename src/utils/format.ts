@@ -40,7 +40,3 @@ export function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
 }
-
-export function randomSlugSuffix(): string {
-  return Math.random().toString(36).slice(2, 7)
-}

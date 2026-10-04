@@ -11,7 +11,7 @@ import { useAppData } from '@/context/AppDataContext'
 import { useToast } from '@/context/ToastContext'
 import { COLORS } from '@/data/attributes'
 import type { Catalogue, CatalogueItem, CatalogueSettings } from '@/types'
-import { formatINR, randomSlugSuffix, slugify } from '@/utils/format'
+import { formatINR } from '@/utils/format'
 import { applyPriceAdjustment, primaryImage, totalStockForProduct, variantsForProduct, waCatalogueLink } from '@/utils/selectors'
 
 const STEPS = ['Customer', 'Catalogue Info', 'Select Products', 'Variants', 'Settings', 'Preview', 'Generate']
@@ -50,6 +50,7 @@ export default function CatalogueBuilderPage() {
   const [settings, setSettings] = useState<CatalogueSettings>(DEFAULT_SETTINGS)
   const [devicePreview, setDevicePreview] = useState<'mobile' | 'desktop'>('mobile')
   const [generated, setGenerated] = useState<Catalogue | null>(null)
+  const [generating, setGenerating] = useState(false)
   const [qrOpen, setQrOpen] = useState(false)
 
   const customer = data.customers.find((c) => c.id === customerId)
@@ -118,11 +119,13 @@ export default function CatalogueBuilderPage() {
     return d.toISOString()
   }
 
-  function handleGenerate() {
-    const slug = `${slugify(customer?.businessName.split(' ')[0] ?? 'catalogue')}-${randomSlugSuffix()}`
-    const catalogue: Catalogue = {
-      id: `cat-log-${Date.now()}`,
-      slug,
+  async function handleGenerate() {
+    if (generating) return
+    // The public link is built from the token the SERVER generated for this catalogue (returned by the API).
+    // The id/slug below are placeholders only: createCatalogue() sends neither to the backend.
+    const draft: Catalogue = {
+      id: '',
+      slug: '',
       name,
       message: message || undefined,
       customerId,
@@ -134,15 +137,26 @@ export default function CatalogueBuilderPage() {
       createdAt: new Date().toISOString(),
       expiresAt: expiryToDate(settings.expiry),
     }
-    createCatalogue(catalogue)
-    setGenerated(catalogue)
-    setStep(6)
-    showToast('Catalogue created successfully')
+    setGenerating(true)
+    try {
+      const created = await createCatalogue(draft)
+      setGenerated(created)
+      setStep(6)
+      showToast('Catalogue created successfully')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not create the catalogue. Please try again.', 'error')
+    } finally {
+      setGenerating(false)
+    }
   }
 
   const catalogueLink = generated ? `${window.location.origin}/catalogue/${generated.slug}` : ''
+  const designCount = generated?.items.length ?? 0
+  const variantCount = generated ? data.variants.filter((v) => generated.items.some((item) => item.productId === v.productId)).length : 0
+  const designsLabel = `${designCount} ${designCount === 1 ? 'design' : 'designs'}`
+  const accessLabel = generated?.expiresAt ? `Expires ${new Date(generated.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'No expiry'
   const waMessage = generated && customer
-    ? `Hi ${customer.contactPerson} 👋\n\nWe've prepared a private wholesale collection for ${customer.businessName}.\n\n📦 18 designs\n🎨 Multiple colours & variants\n✅ Ready stock available\n\nView your catalogue:\n${catalogueLink}\n\nSelect the designs, colours, sizes and quantities you're interested in and send us your enquiry directly.\n\n– Vastraa Wholesale`
+    ? `Hi ${customer.contactPerson} 👋\n\nWe've prepared a private wholesale collection for ${customer.businessName}.\n\n📦 ${designsLabel}\n🎨 Multiple colours & variants\n✅ Ready stock available\n\nView your catalogue:\n${catalogueLink}\n\nSelect the designs, colours, sizes and quantities you're interested in and send us your enquiry directly.\n\n– Vastraa Wholesale`
     : ''
 
   return (
@@ -418,10 +432,10 @@ export default function CatalogueBuilderPage() {
             <p className="mt-1 text-sm text-stone-500">Share it directly with your wholesale customer.</p>
           </div>
           <div className="grid grid-cols-2 gap-2 rounded-2xl bg-stone-50 p-3 text-left text-xs sm:grid-cols-4">
-            <div><p className="text-stone-400">Customer</p><p className="mt-1 font-semibold text-stone-800">Raj Fashion House</p></div>
-            <div><p className="text-stone-400">Catalogue</p><p className="mt-1 font-semibold text-stone-800">September New Arrivals</p></div>
-            <div><p className="text-stone-400">Summary</p><p className="mt-1 font-semibold text-stone-800">18 Designs · 76 Variants</p></div>
-            <div><p className="text-stone-400">Access</p><p className="mt-1 font-semibold text-emerald-700">Ready Stock · 30 Days</p></div>
+            <div><p className="text-stone-400">Customer</p><p className="mt-1 font-semibold text-stone-800">{customer?.businessName}</p></div>
+            <div><p className="text-stone-400">Catalogue</p><p className="mt-1 font-semibold text-stone-800">{generated.name}</p></div>
+            <div><p className="text-stone-400">Summary</p><p className="mt-1 font-semibold text-stone-800">{designsLabel} · {variantCount} {variantCount === 1 ? 'variant' : 'variants'}</p></div>
+            <div><p className="text-stone-400">Access</p><p className="mt-1 font-semibold text-emerald-700">{accessLabel}</p></div>
           </div>
           <div className="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
             <p className="flex-1 truncate text-left text-sm font-mono text-stone-700">{catalogueLink}</p>
@@ -450,7 +464,7 @@ export default function CatalogueBuilderPage() {
         </div>
       )}
 
-      <CatalogueQrModal open={qrOpen} onClose={() => setQrOpen(false)} url={catalogueLink} onCopy={() => { navigator.clipboard.writeText(catalogueLink); showToast('Catalogue link copied') }} />
+      <CatalogueQrModal open={qrOpen} onClose={() => setQrOpen(false)} url={catalogueLink} customerName={customer?.businessName ?? ''} catalogueName={generated?.name ?? ''} onCopy={() => { navigator.clipboard.writeText(catalogueLink); showToast('Catalogue link copied') }} />
 
       {step < 6 && (
         <div className="sticky bottom-16 z-30 flex items-center justify-between border-t border-stone-200 bg-white/95 px-4 py-3 shadow-md backdrop-blur-md sm:bottom-0 sm:rounded-2xl sm:border">
@@ -480,9 +494,10 @@ export default function CatalogueBuilderPage() {
           ) : (
             <button
               onClick={handleGenerate}
-              className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-stone-900 px-5 text-sm font-semibold text-white shadow-sm active:scale-[0.98]"
+              disabled={generating}
+              className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-stone-900 px-5 text-sm font-semibold text-white shadow-sm active:scale-[0.98] disabled:opacity-40"
             >
-              <Check size={15} /> Generate Catalogue Link
+              <Check size={15} /> {generating ? 'Generating…' : 'Generate Catalogue Link'}
             </button>
           )}
         </div>
@@ -491,7 +506,7 @@ export default function CatalogueBuilderPage() {
   )
 }
 
-function CatalogueQrModal({ open, onClose, url, onCopy }: { open: boolean; onClose: () => void; url: string; onCopy: () => void }) {
+function CatalogueQrModal({ open, onClose, url, onCopy, customerName, catalogueName }: { open: boolean; onClose: () => void; url: string; onCopy: () => void; customerName: string; catalogueName: string }) {
   const [image, setImage] = useState('')
   useEffect(() => {
     if (open && url) QRCode.toDataURL(url, { width: 720, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#1c1917', light: '#ffffff' } }).then(setImage)
@@ -504,7 +519,7 @@ function CatalogueQrModal({ open, onClose, url, onCopy }: { open: boolean; onClo
     link.click()
   }
   return <Modal open={open} onClose={onClose} title="Vastraa Wholesale" size="sm">
-    <div className="space-y-4 text-center"><div><p className="font-serif text-xl font-semibold text-stone-900">Catalogue QR Code</p><p className="mt-1 text-sm text-stone-500">Customer: Raj Fashion House</p><p className="text-sm text-stone-500">Catalogue: September New Arrivals</p></div>
+    <div className="space-y-4 text-center"><div><p className="font-serif text-xl font-semibold text-stone-900">Catalogue QR Code</p><p className="mt-1 text-sm text-stone-500">Customer: {customerName}</p><p className="text-sm text-stone-500">Catalogue: {catalogueName}</p></div>
       <div className="mx-auto w-fit rounded-2xl border border-stone-200 bg-white p-3 shadow-sm">{image ? <img src={image} alt="Scannable QR code for the catalogue" className="h-56 w-56" /> : <div className="h-56 w-56 animate-pulse rounded-xl bg-stone-100" />}</div>
       <p className="text-sm text-stone-500">Scan to open this private wholesale catalogue</p>
       <div className="grid grid-cols-2 gap-2"><button onClick={download} disabled={!image} className="rounded-xl bg-stone-900 py-2.5 text-sm font-semibold text-white disabled:opacity-50">Download QR</button><button onClick={onCopy} className="rounded-xl border border-stone-200 py-2.5 text-sm font-semibold text-stone-700">Copy Catalogue Link</button></div><button onClick={onClose} className="w-full py-2 text-sm font-semibold text-stone-500">Close</button>

@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { PutObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import argon2 from 'argon2'
 import { AttributeKind, CustomerType, PrismaClient, RecordStatus, Role } from '@prisma/client'
@@ -578,4 +579,110 @@ test('storage migration tool (default mirror mode): same keys, no DB writes, loc
     const mismatch = await migrateStorage({ prisma, target, sourceDir: dir, verifyUrls: true, fetchFn: async () => ({ status: 200, headers: { get: () => '1' } }) })
     assert.equal(mismatch.failed, 1); assert.match(mismatch.failures[0], /size mismatch/)
   } finally { await rm(dir, { recursive: true, force: true }); await prisma.productMedia.deleteMany({ where: { productId: k104 } }) }
+})
+
+// ---- Regression: a catalogue created through the normal admin flow on a FRESH tenant is reachable via its generated public link.
+// Root cause of the original bug: the admin UI invented its own link slug while the API generates the real public `token`
+// (the only identifier GET /public/catalogues/:token understands). Every other catalogue test seeds hand-picked tokens directly
+// in the database, so none of them exercised "create via API -> use the returned token". This one does, with no seed data.
+const adminJson = (path: string, method: string, body?: unknown) =>
+  request(path, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }, true)
+const tinyPng = () => {
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(body) >>> 0)
+    return Buffer.concat([len, body, crc])
+  }
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(4, 0); ihdr.writeUInt32BE(4, 4); ihdr[8] = 8; ihdr[9] = 2
+  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(12, 0x80)])
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(Buffer.concat([row, row, row, row]))), chunk('IEND', Buffer.alloc(0))])
+}
+
+test('fresh tenant: catalogue created via the admin API opens through its generated public link (create -> token -> public 200)', async () => {
+  // 1. fresh business + owner exactly like the production admin tool: no demo data, Argon2id password
+  const business = await prisma.business.create({ data: { name: 'Fresh Wholesale', slug: 'fresh-wholesale' } })
+  const passwordHash = await argon2.hash('FreshOwner#2026', { type: argon2.argon2id })
+  await prisma.user.create({ data: { businessId: business.id, name: 'Fresh Owner', email: 'fresh-owner@vastraa.test', passwordHash, role: Role.OWNER } })
+
+  const prior = cookie
+  try {
+    assert.equal((await login('fresh-owner@vastraa.test', 'FreshOwner#2026')).status, 200)
+
+    // 2-3. attributes, category
+    const fabric = (await (await adminJson('/api/v1/attributes', 'POST', { name: 'Fabric', kind: 'SELECT', supportsImages: true, values: [{ value: 'Rayon' }, { value: 'Cotton' }] })).json()).data
+    const size = (await (await adminJson('/api/v1/attributes', 'POST', { name: 'Size', kind: 'SIZE', values: [{ value: 'S' }, { value: 'M' }] })).json()).data
+    const rayon = fabric.values.find((v: { value: string }) => v.value === 'Rayon').id
+    const sizeS = size.values.find((v: { value: string }) => v.value === 'S').id
+    const category = (await (await adminJson('/api/v1/categories', 'POST', { name: 'Fresh Kurtis', slug: 'fresh-kurtis', attributeIds: [fabric.id, size.id] })).json()).data
+    // 4. uploaded general product image (goes through the storage provider)
+    const form = new FormData(); form.append('file', new Blob([new Uint8Array(tinyPng())], { type: 'image/png' }), 'p.png')
+    const upload = await request('/api/v1/media', { method: 'POST', body: form }, true)
+    assert.equal(upload.status, 201); const media = (await upload.json()).data
+    // 5. product with a variant
+    const productRes = await adminJson('/api/v1/products', 'POST', {
+      categoryId: category.id, code: 'FR-1', name: 'Fresh Rayon Kurti', basePrice: 100, moq: 6, attributeIds: [fabric.id, size.id], allowedAttributeValueIds: [rayon, sizeS],
+      media: [{ objectKey: media.objectKey, mimeType: 'image/png', sizeBytes: media.sizeBytes, primary: true, sortOrder: 0 }],
+      variants: [{ sku: 'FR-1-R-S', price: 100, stock: 10, attributeValueIds: [rayon, sizeS] }],
+    })
+    assert.equal(productRes.status, 201); const product = (await productRes.json()).data
+    // 6. customer
+    const customerRes = await adminJson('/api/v1/customers', 'POST', { businessName: 'Fresh Buyer Traders', contactPerson: 'Asha', phone: '+919800000001', type: 'WHOLESALER' })
+    assert.equal(customerRes.status, 201); const customer = (await customerRes.json()).data
+    // 7. catalogue exactly as the admin UI posts it (no token/slug supplied by the client)
+    const created = await adminJson('/api/v1/catalogues', 'POST', {
+      customerId: customer.id, title: 'Fresh Buyer – October', message: 'Hello', status: 'ACTIVE', expiresAt: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      showPrice: true, priceAdjustmentPct: 10, items: [{ productId: product.id }],
+    })
+    assert.equal(created.status, 201); const catalogue = (await created.json()).data
+    // 8. the generated identifier: server-made, long and random, and the same one the admin list returns (the admin UI builds /catalogue/<token> from it)
+    assert.equal(typeof catalogue.token, 'string'); assert.ok(catalogue.token.length >= 32, 'token must be long and random')
+    const listed = (await (await adminJson('/api/v1/catalogues?limit=100', 'GET')).json()).data.find((c: { id: string }) => c.id === catalogue.id)
+    assert.equal(listed.token, catalogue.token)
+
+    // 9. open the generated link UNAUTHENTICATED
+    const publicRes = await request(`/api/v1/public/catalogues/${encodeURIComponent(catalogue.token)}`)
+    assert.equal(publicRes.status, 200)
+    const body = (await publicRes.json()).data
+    // 10. correct catalogue + products
+    assert.equal(body.token, catalogue.token); assert.equal(body.title, 'Fresh Buyer – October'); assert.equal(body.products.length, 1); assert.equal(body.products[0].code, 'FR-1')
+    // 11. pricing: +10% catalogue adjustment on a 100 variant
+    assert.ok(Math.abs(body.products[0].variants[0].price - 110) < 0.005, `expected ~110, got ${body.products[0].variants[0].price}`) // server does not round (110.00000000000001); tolerance keeps this test about the link, not float formatting
+    // 12. media serialized through the storage provider URL, with no storage internals leaked
+    assert.equal(body.products[0].media[0].url, fake.getPublicUrl(media.objectKey)); assert.equal('objectKey' in body.products[0].media[0], false)
+    assert.deepEqual(body.products[0].attributes.map((a: { name: string }) => a.name), ['Fabric', 'Size'])
+
+    // the identifier the old UI generated (customer first word + 5 random chars) is NOT a valid public identifier -> precise 404 code
+    for (const clientStyleSlug of ['fresh-a0brd', 'fresh-buyer-traders', catalogue.id]) {
+      const bad = await request(`/api/v1/public/catalogues/${clientStyleSlug}`)
+      assert.equal(bad.status, 404); assert.equal((await bad.json()).error.code, 'CATALOGUE_UNAVAILABLE')
+    }
+
+    // customer-specific price on a catalogue item overrides the percentage adjustment
+    const custom = (await (await adminJson('/api/v1/catalogues', 'POST', { customerId: customer.id, title: 'Fresh custom price', status: 'ACTIVE', showPrice: true, items: [{ productId: product.id, customPrice: 90 }] })).json()).data
+    assert.equal((await (await request(`/api/v1/public/catalogues/${custom.token}`)).json()).data.products[0].variants[0].price, 90)
+
+    // 13. disabled -> unavailable
+    assert.equal((await adminJson(`/api/v1/catalogues/${custom.id}/disable`, 'POST')).status, 204)
+    const disabled = await request(`/api/v1/public/catalogues/${custom.token}`)
+    assert.equal(disabled.status, 404); assert.equal((await disabled.json()).error.code, 'CATALOGUE_UNAVAILABLE')
+    // 14. expired -> unavailable (and it works again once the expiry is moved forward)
+    assert.equal((await adminJson(`/api/v1/catalogues/${catalogue.id}`, 'PATCH', { expiresAt: new Date(Date.now() - 60_000).toISOString() })).status, 204)
+    assert.equal((await request(`/api/v1/public/catalogues/${catalogue.token}`)).status, 404)
+    assert.equal((await adminJson(`/api/v1/catalogues/${catalogue.id}`, 'PATCH', { expiresAt: new Date(Date.now() + 86_400_000).toISOString() })).status, 204)
+    assert.equal((await request(`/api/v1/public/catalogues/${catalogue.token}`)).status, 200)
+
+    // 15. another tenant cannot see or modify it
+    assert.equal((await login('other@vastraa.test')).status, 200)
+    const theirs = (await (await adminJson('/api/v1/catalogues?limit=100', 'GET')).json()).data
+    assert.equal(theirs.some((c: { id: string }) => c.id === catalogue.id), false)
+    assert.equal((await adminJson(`/api/v1/catalogues/${catalogue.id}`, 'PATCH', { title: 'hijack' })).status, 404)
+    assert.equal((await adminJson(`/api/v1/catalogues/${catalogue.id}/disable`, 'POST')).status, 404)
+    assert.equal((await adminJson(`/api/v1/catalogues/${catalogue.id}`, 'DELETE')).status, 404)
+    // ...and cannot build a catalogue around this tenant's product or customer
+    const steal = await adminJson('/api/v1/catalogues', 'POST', { title: 'steal', status: 'ACTIVE', customerId: customer.id, items: [{ productId: product.id }] })
+    assert.ok(steal.status >= 400 && steal.status < 500, `cross-tenant catalogue creation must be rejected, got ${steal.status}`)
+    assert.equal((await request(`/api/v1/public/catalogues/${catalogue.token}`)).status, 200)
+    assert.equal((await prisma.catalogue.findUnique({ where: { id: catalogue.id } }))!.title, 'Fresh Buyer – October')
+  } finally { cookie = prior }
 })
