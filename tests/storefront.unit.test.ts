@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import { resolveGallery, variantThumbnail } from '../src/utils/gallery.ts'
 import { effectiveVariantPrice, variantLabel, variantPriceRange } from '../src/utils/selectors.ts'
 import { formatINR, formatPriceRange } from '../src/utils/format.ts'
+import { commonPriceOf, derivePricingMode, mostCommonPrice, pricesDiffer } from '../src/utils/pricingMode.ts'
 import type { Product } from '../src/types/index.ts'
 
 const img = (url: string, sortOrder = 0) => ({ id: url, url, sortOrder })
@@ -81,4 +82,15 @@ test('price range and formatting', () => {
   assert.equal(formatINR(620), '₹620'); assert.equal(formatINR(679.5), '₹679.50'); assert.equal(formatINR(1234567), '₹12,34,567')
   assert.equal(formatPriceRange({ min: 620, max: 680 }), '₹620 – ₹680'); assert.equal(formatPriceRange({ min: 620, max: 620 }), '₹620'); assert.equal(formatPriceRange(undefined), '')
   assert.equal(variantLabel({ attributes: { size: 'M', color: 'Red' }, sku: 'X' }), 'Red / M'); assert.equal(variantLabel({ attributes: {}, sku: 'SKU-1' }), 'SKU-1')
+})
+
+test('pricing mode is derived from variant prices, never stored', () => {
+  assert.equal(derivePricingMode([650, 650, 650]), 'same'); assert.equal(derivePricingMode([650]), 'same'); assert.equal(derivePricingMode([]), 'same')
+  assert.equal(derivePricingMode([600, 600, 650]), 'different')
+  assert.equal(commonPriceOf([650, 650]), '650'); assert.equal(commonPriceOf([600, 650]), ''); assert.equal(commonPriceOf([]), '')
+})
+
+test('switching helpers: differing prices need confirmation, new variants get the most used price', () => {
+  assert.equal(pricesDiffer(['600', '600', '650']), true); assert.equal(pricesDiffer(['650', '650', '']), false); assert.equal(pricesDiffer(['650', 'x', '0']), false)
+  assert.equal(mostCommonPrice(['600', '600', '650']), '600'); assert.equal(mostCommonPrice(['600', '650']), '600'); assert.equal(mostCommonPrice(['', '0']), '')
 })

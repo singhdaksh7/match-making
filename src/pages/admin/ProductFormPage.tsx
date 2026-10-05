@@ -9,7 +9,8 @@ import { useAppData } from '@/context/AppDataContext'
 import { useToast } from '@/context/ToastContext'
 import { ApiError, apiClient } from '@/services/api/client'
 import type { Attribute, Product, ProductMedia, ProductVariant } from '@/types'
-import { formatPriceRange } from '@/utils/format'
+import { formatINR, formatPriceRange } from '@/utils/format'
+import { commonPriceOf, derivePricingMode, mostCommonPrice, pricesDiffer, type PricingMode } from '@/utils/pricingMode'
 import { variantLabel, variantPriceRange, variantsForProduct } from '@/utils/selectors'
 
 const STEPS = ['Basic Information', 'Category', 'Product Attributes', 'Variants & Prices', 'MOQ', 'Images', 'Save']
@@ -74,6 +75,10 @@ export default function ProductFormPage() {
     })),
   )
   const [bulkPrice, setBulkPrice] = useState('')
+  // UI-only: derived from the saved variant prices (all equal -> same). Never persisted; every variant keeps its own price.
+  const [pricingMode, setPricingMode] = useState<PricingMode>(() => derivePricingMode(existingVariants.map((v) => v.price)))
+  const [commonPrice, setCommonPrice] = useState(() => commonPriceOf(existingVariants.map((v) => v.price)))
+  const [confirmSame, setConfirmSame] = useState(false)
   const [moq, setMoq] = useState(existing?.moq ?? data.settings.catalogueDefaults.defaultMOQ)
   const [manualAttrs, setManualAttrs] = useState<Record<string, string>>({})
   const [pendingDeselect, setPendingDeselect] = useState<{ attrId: string; valueId: string; name: string; usedByVariants: boolean } | null>(null)
@@ -111,6 +116,35 @@ export default function ProductFormPage() {
     return attr.values.filter((value) => ids.has(value.id))
   }
 
+  /** Price a newly added variant starts with: the common price, or the most used current price (editable). */
+  function newVariantPrice() {
+    if (pricingMode === 'same') return commonPrice
+    return mostCommonPrice(draftVariants.filter((item) => item.enabled).map((item) => item.price)) || commonPrice
+  }
+
+  function changeCommonPrice(value: string) {
+    setCommonPrice(value)
+    setDraftVariants((prev) => prev.map((item) => (item.enabled ? { ...item, price: value } : item)))
+  }
+
+  function chooseMode(mode: PricingMode) {
+    if (mode === pricingMode) return
+    if (mode === 'different') { setPricingMode('different'); return } // every variant already carries the common price: just edit
+    const prices = draftVariants.filter((item) => item.enabled).map((item) => item.price)
+    if (pricesDiffer(prices)) { setConfirmSame(true); return }
+    setPricingMode('same')
+    const only = mostCommonPrice(prices)
+    setCommonPrice(only)
+    setDraftVariants((prev) => prev.map((item) => (item.enabled ? { ...item, price: only } : item)))
+  }
+
+  function confirmCommonPrice() {
+    setConfirmSame(false)
+    setPricingMode('same')
+    setCommonPrice('')
+    setDraftVariants((prev) => prev.map((item) => (item.enabled ? { ...item, price: '' } : item)))
+  }
+
   function generateVariants() {
     const dims = categoryAttributes
       .map((attr) => ({ attr, values: allowedValuesFor(attr) }))
@@ -129,9 +163,9 @@ export default function ProductFormPage() {
       combos = next
     }
     const have = new Set(draftVariants.map((item) => item.key))
-    const fresh = combos.map((attrs) => ({ key: Object.values(attrs).join('-'), attributes: attrs, price: '', enabled: true })).filter((item) => !have.has(item.key))
+    const fresh = combos.map((attrs) => ({ key: Object.values(attrs).join('-'), attributes: attrs, price: newVariantPrice(), enabled: true })).filter((item) => !have.has(item.key))
     setDraftVariants((prev) => [...prev, ...fresh])
-    showToast(fresh.length ? `${fresh.length} combinations added. Enter a price for each, and untick any you do not make.` : 'Every combination is already in the list')
+    showToast(fresh.length ? `${fresh.length} combinations added. Check the prices, and untick any you do not make.` : 'Every combination is already in the list')
   }
 
   function addManualVariant() {
@@ -151,7 +185,7 @@ export default function ProductFormPage() {
       showToast('That combination is already in the list', 'error')
       return
     }
-    setDraftVariants((prev) => [...prev, { key, attributes, price: '', enabled: true }])
+    setDraftVariants((prev) => [...prev, { key, attributes, price: newVariantPrice(), enabled: true }])
   }
 
   async function handleImageUpload(files: FileList | null) {
@@ -337,6 +371,26 @@ export default function ProductFormPage() {
         {step === 3 && (
           <div className="space-y-4">
             <p className="text-sm text-stone-500">Add only the combinations you actually manufacture. Generating every combination is optional.</p>
+            <fieldset className="space-y-3 rounded-xl border border-stone-200 p-4" data-testid="pricing-mode">
+              <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-stone-400">Pricing</legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {([['same', 'Same price for all variants'], ['different', 'Different price for each variant']] as const).map(([mode, label]) => (
+                  <label key={mode} className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-2 text-sm font-medium ${pricingMode === mode ? 'border-stone-900 bg-stone-50 text-stone-900' : 'border-stone-200 text-stone-600'}`}>
+                    <input type="radio" name="pricing-mode" value={mode} data-testid={`pricing-mode-${mode}`} checked={pricingMode === mode} onChange={() => chooseMode(mode)} className="h-5 w-5 accent-stone-900" />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              {pricingMode === 'same' && (
+                <label className="block text-xs font-semibold text-stone-600">Price for all variants
+                  <span className="mt-1 flex items-center gap-2">
+                    <span className="text-sm text-stone-500">₹</span>
+                    <input type="number" inputMode="decimal" min="0" step="0.01" value={commonPrice} onChange={(e) => changeCommonPrice(e.target.value)} placeholder="e.g. 650" data-testid="common-price" className="h-11 w-full rounded-xl border border-stone-200 px-3 text-sm font-medium text-stone-900" />
+                  </span>
+                  <span className="mt-1 block font-normal text-stone-400">Applied to every variant below. Each variant still stores its own price.</span>
+                </label>
+              )}
+            </fieldset>
             <div className="space-y-3 rounded-xl border border-stone-200 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">Add a variant</p>
               {categoryAttributes.filter((attr) => allowedValuesFor(attr).length > 0).length === 0 && (
@@ -365,12 +419,12 @@ export default function ProductFormPage() {
             </button>
             {draftVariants.length > 0 && (
               <div className="space-y-3" data-testid="variant-price-list">
-                <div className="flex flex-wrap items-end gap-2 rounded-xl bg-stone-50 p-3">
-                  <label className="min-w-0 flex-1 text-xs font-semibold text-stone-600">Same price for every variant (optional shortcut)
+                {pricingMode === 'different' && <div className="flex flex-wrap items-end gap-2 rounded-xl bg-stone-50 p-3">
+                  <label className="min-w-0 flex-1 text-xs font-semibold text-stone-600">Set price for all (then change only the variants that differ)
                     <input type="number" inputMode="decimal" min="0" step="0.01" value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder="₹ price" data-testid="bulk-price" className="mt-1 h-11 w-full rounded-xl border border-stone-200 px-3 text-sm font-medium text-stone-800" />
                   </label>
-                  <button type="button" disabled={parsePrice(bulkPrice) === null} onClick={() => setDraftVariants((prev) => prev.map((item) => (item.enabled ? { ...item, price: bulkPrice } : item)))} className="h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold text-stone-700 disabled:opacity-40">Apply to all</button>
-                </div>
+                  <button type="button" disabled={parsePrice(bulkPrice) === null} onClick={() => setDraftVariants((prev) => prev.map((item) => (item.enabled ? { ...item, price: bulkPrice } : item)))} className="h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold text-stone-700 disabled:opacity-40">Set price for all</button>
+                </div>}
                 <ul className="divide-y divide-stone-100 rounded-xl border border-stone-200">
                   {draftVariants.map((variant, i) => {
                     const invalid = variant.enabled && parsePrice(variant.price) === null
@@ -380,12 +434,16 @@ export default function ProductFormPage() {
                           <p className="truncate text-sm font-medium text-stone-800">{variantLabel({ attributes: variant.attributes, sku: variant.key })}</p>
                           {variant.existingId && <p className="text-[11px] text-stone-400">Saved variant</p>}
                         </div>
+                        {pricingMode === 'same' ? (
+                          <span data-testid="variant-price-text" className="text-sm font-semibold text-stone-900">{parsePrice(variant.price) === null ? '—' : formatINR(parsePrice(variant.price)!)}</span>
+                        ) : (
                         <label className="flex items-center gap-1.5 text-xs font-semibold text-stone-500">
                           Price ₹
                           <input type="number" inputMode="decimal" min="0" step="0.01" aria-label={`Price for ${variantLabel({ attributes: variant.attributes, sku: variant.key })}`} data-testid="variant-price" value={variant.price} disabled={!variant.enabled}
                             onChange={(e) => setDraftVariants((prev) => prev.map((item, index) => (index === i ? { ...item, price: e.target.value } : item)))}
                             className={`h-11 w-28 rounded-lg border px-2.5 text-sm font-medium text-stone-900 ${invalid ? 'border-red-400 bg-red-50' : 'border-stone-200'}`} />
                         </label>
+                        )}
                         {!variant.existingId && (
                           <label className="flex items-center gap-1.5 text-xs font-semibold text-stone-500">
                             Keep
@@ -503,6 +561,15 @@ export default function ProductFormPage() {
           </button>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmSame}
+        danger
+        title="Use one price for all variants?"
+        description="Applying a common price will replace all current variant prices. You will then enter the one price for every variant."
+        confirmLabel="Replace all prices"
+        onCancel={() => setConfirmSame(false)}
+        onConfirm={confirmCommonPrice}
+      />
       <ConfirmDialog
         open={Boolean(pendingDeselect)}
         danger

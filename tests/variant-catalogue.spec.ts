@@ -18,7 +18,7 @@ test.beforeAll(() => {
 })
 
 type Id = { id: string }
-const s: { color?: any; size?: any; category?: Id; customer?: Id; product?: any; ui?: Id; token?: string; catalogueId?: string } = {}
+const s: { eq?: any; color?: any; size?: any; category?: Id; customer?: Id; product?: any; ui?: Id; token?: string; catalogueId?: string } = {}
 let admin: BrowserContext
 let page: Page
 
@@ -77,19 +77,48 @@ test('admin product form: no stock, no product price, a required price for every
   for (const name of ['M', 'L']) await page.getByRole('button', { name, exact: true }).click()
   await next.click()
   await page.getByRole('button', { name: /Generate combinations/ }).click()
-  const rows = page.getByTestId('variant-price')
-  await expect(rows).toHaveCount(4)
+  const rows = page.getByTestId('variant-price') // editable per-variant inputs (only in "different" mode)
+  const same = page.getByTestId('pricing-mode-same'), different = page.getByTestId('pricing-mode-different'), common = page.getByTestId('common-price')
   expect(await bodyText(page)).not.toMatch(/stock/i)
   expect(await bodyText(page)).not.toMatch(/wholesale price|compare price/i)
-  await expect(next).toBeDisabled() // unpriced variants block the step
+  // a new product starts in "same price" mode; nothing is priced yet, so the step is blocked
+  await expect(same).toBeChecked()
+  await expect(page.getByTestId('variant-price-text')).toHaveCount(4)
+  await expect(next).toBeDisabled()
   await expect(page.getByRole('alert')).toContainText('4 variants need a price')
+  // same price: one field fills every variant
+  await common.fill('650')
+  await expect(page.getByTestId('variant-price-text')).toHaveText(['₹650', '₹650', '₹650', '₹650'])
+  await expect(next).toBeEnabled()
+  // same -> different: each variant is prefilled with the common price, nothing is asked
+  await different.check()
+  await expect(rows).toHaveCount(4)
+  for (let i = 0; i < 4; i++) await expect(rows.nth(i)).toHaveValue('650')
+  await rows.nth(0).fill('600'); await rows.nth(3).fill('700')
+  // different -> same with differing prices needs confirmation; cancelling keeps every price
+  await same.click()
+  await expect(page.getByText('Applying a common price will replace all current variant prices')).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await expect(different).toBeChecked()
+  await expect(rows.nth(0)).toHaveValue('600'); await expect(rows.nth(3)).toHaveValue('700')
+  await same.click()
+  await page.getByRole('button', { name: 'Replace all prices' }).click()
+  await expect(same).toBeChecked()
+  await expect(next).toBeDisabled() // the old prices were replaced; the common price must be entered again
+  await common.fill('650')
+  await expect(page.getByTestId('variant-price-text')).toHaveText(['₹650', '₹650', '₹650', '₹650'])
+  // different mode: "Set price for all", then edit only what differs
+  await different.check()
   await page.getByTestId('bulk-price').fill('500')
-  await page.getByRole('button', { name: 'Apply to all' }).click()
+  await page.getByRole('button', { name: 'Set price for all' }).click()
+  for (let i = 0; i < 4; i++) await expect(rows.nth(i)).toHaveValue('500')
   await rows.nth(1).fill('520.5')
   await expect(next).toBeEnabled()
   await rows.nth(2).fill('0')
   await expect(next).toBeDisabled()
   await rows.nth(2).fill('510')
+  await expect(next).toBeEnabled()
+  await noHorizontalScroll(page)
   await next.click() // MOQ
   expect(await bodyText(page)).not.toMatch(/in stock|low stock|total stock/i)
   await next.click() // images
@@ -305,4 +334,103 @@ test('catalogue editing can add a product; the new product shares nothing until 
   const after = await api(admin.request, 'get', `/catalogues/${created.id}`)
   expect(after.items).toHaveLength(2)
   expect(after.token).toBe(created.token) // editing never regenerates the public token
+})
+
+test('existing products open in the right pricing mode; new variants get an appropriate price; the common price updates every variant', async () => {
+  const v = (attr: any, name: string) => attr.values.find((x: any) => x.value === name).id
+  const eq = await api(admin.request, 'post', '/products', {
+    categoryId: s.category!.id, code: `EQ-${tag}`, name: `Equal Price Kurti ${tag}`, moq: 1, attributeIds: [s.color.id, s.size.id],
+    allowedAttributeValueIds: [v(s.color, 'Red'), v(s.color, 'Blue'), v(s.size, 'M'), v(s.size, 'L'), v(s.size, 'XL')],
+    variants: [['Red', 'M'], ['Red', 'L'], ['Blue', 'M']].map(([c, z]) => ({ sku: `EQ-${tag}-${c}-${z}`, price: 650, attributeValueIds: [v(s.color, c), v(s.size, z)] })),
+  })
+  s.eq = eq
+  const toVariants = async (id: string) => {
+    await page.goto(`${baseURL}/products/${id}/edit`)
+    const next = page.getByRole('button', { name: /^Continue/ })
+    await next.click(); await next.click(); await next.click()
+    await expect(page.getByTestId('pricing-mode')).toBeVisible()
+    return next
+  }
+  // all prices equal -> "same", populated
+  await toVariants(eq.id)
+  await expect(page.getByTestId('pricing-mode-same')).toBeChecked()
+  await expect(page.getByTestId('common-price')).toHaveValue('650')
+  // mixed prices -> "different", each variant shows its own saved price
+  const before = ((await api(admin.request, 'get', `/products/${s.product.id}`)).variants as any[]).map((x) => Number(x.price)).sort((a, b) => a - b)
+  await toVariants(s.product.id)
+  await expect(page.getByTestId('pricing-mode-different')).toBeChecked()
+  const shown = (await page.getByTestId('variant-price').evaluateAll((els) => els.map((e) => Number((e as HTMLInputElement).value)))).sort((a, b) => a - b)
+  expect(shown).toEqual(before)
+  expect(new Set(shown).size).toBeGreaterThan(1)
+
+  // add a variant in "same" mode: it gets the common price, existing variants are untouched
+  const next = await toVariants(eq.id)
+  await page.locator('select').nth(0).selectOption('Blue')
+  await page.locator('select').nth(1).selectOption('XL')
+  await page.getByRole('button', { name: 'Add Variant' }).click()
+  await expect(page.getByTestId('variant-price-text')).toHaveText(['₹650', '₹650', '₹650', '₹650'])
+  await next.click(); await next.click(); await next.click()
+  await page.getByRole('button', { name: 'Save Changes' }).click()
+  await expect(page).toHaveURL(new RegExp(`/products/${eq.id}$`))
+  let prices = ((await api(admin.request, 'get', `/products/${eq.id}`)).variants as any[]).map((x) => Number(x.price))
+  expect(prices).toHaveLength(4); expect(prices.every((x) => x === 650)).toBe(true)
+
+  // changing the common price updates every variant (each still stored individually)
+  const next2 = await toVariants(eq.id)
+  await page.getByTestId('common-price').fill('700')
+  await next2.click(); await next2.click(); await next2.click()
+  await page.getByRole('button', { name: 'Save Changes' }).click()
+  await expect(page).toHaveURL(new RegExp(`/products/${eq.id}$`))
+  prices = ((await api(admin.request, 'get', `/products/${eq.id}`)).variants as any[]).map((x) => Number(x.price))
+  expect(prices).toHaveLength(4); expect(prices.every((x) => x === 700)).toBe(true)
+  // the mixed product, only viewed, kept its prices
+  const after = ((await api(admin.request, 'get', `/products/${s.product.id}`)).variants as any[]).map((x) => Number(x.price)).sort((a, b) => a - b)
+  expect(after).toEqual(before)
+})
+
+test('public catalogue of a same-price product shows that price for every variant; enquiry snapshots it; mobile form works at 390px', async ({ browser }) => {
+  const eq = s.eq
+  for (const colour of ['Red', 'Blue']) {
+    const res = await admin.request.post(`${baseURL}/api/v1/products/${eq.id}/attribute-values/${s.color.values.find((x: any) => x.value === colour).id}/images`, { multipart: { files: { name: `${colour}.png`, mimeType: 'image/png', buffer: PNG } } })
+    expect(res.status()).toBe(201)
+  }
+  const variants = ((await api(admin.request, 'get', `/products/${eq.id}`)).variants as any[])
+  const cat = await api(admin.request, 'post', '/catalogues', { customerId: s.customer!.id, title: `Same price ${tag}`, status: 'ACTIVE', items: [{ productId: eq.id, variants: variants.map((x) => ({ variantId: x.id })) }] })
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+  const p = await ctx.newPage()
+  await p.goto(`${baseURL}/catalogue/${cat.token}`)
+  const card = p.locator('a', { hasText: `Equal Price Kurti ${tag}` }).first()
+  await expect(card.getByTestId('card-price')).toHaveText(/^₹700\/pc$/) // one price, not a range
+  await card.click()
+  await expect(p.getByTestId('variant-price')).toContainText('₹700')
+  const gallery = p.getByTestId('gallery-main')
+  await p.getByTestId('option-color-Red').tap()
+  await expect(gallery).toHaveAttribute('data-gallery-context', 'color:Red')
+  const redSrc = await gallery.getAttribute('data-gallery-src')
+  for (const size of ['M', 'L']) {
+    await p.getByTestId(`option-size-${size}`).tap()
+    await expect(p.getByTestId('variant-price')).toContainText('₹700')
+    await expect(gallery).toHaveAttribute('data-gallery-context', 'color:Red') // size never changes the image
+    expect(await gallery.getAttribute('data-gallery-src')).toBe(redSrc)
+  }
+  await noHorizontalScroll(p)
+  await ctx.close()
+  const redM = variants.find((x) => x.sku.endsWith('Red-M'))
+  const enq = await admin.request.post(`${baseURL}/api/v1/public/catalogues/${cat.token}/enquiries`, { data: { contactName: 'Same Price Buyer', phone: '+919999900001', items: [{ productId: eq.id, variantId: redM.id, quantity: 12 }] } })
+  expect(enq.status()).toBe(201)
+  const row = ((await api(admin.request, 'get', '/enquiries?limit=100')) as any[]).find((e) => e.contactName === 'Same Price Buyer')
+  expect(Number(row.items[0].priceSnapshot)).toBe(700)
+
+  // the product form at 390px: pricing modes usable, no horizontal overflow
+  const m = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  await m.addCookies(await admin.cookies())
+  const mp = await m.newPage()
+  await mp.goto(`${baseURL}/products/${eq.id}/edit`)
+  const next = mp.getByRole('button', { name: /^Continue/ })
+  await next.click(); await next.click(); await next.click()
+  await expect(mp.getByTestId('pricing-mode-same')).toBeChecked()
+  await mp.getByTestId('pricing-mode-different').check()
+  await expect(mp.getByTestId('variant-price').first()).toBeVisible()
+  await noHorizontalScroll(mp)
+  await m.close()
 })
