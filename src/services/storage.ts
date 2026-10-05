@@ -34,7 +34,6 @@ export const STORAGE_KEYS = {
   catalogues: 'catalogues',
   enquiries: 'enquiries',
   notifications: 'notifications',
-  inventory: 'inventory_entries',
   settings: 'settings',
   seededAt: 'seeded_at',
   demoDataVersion: 'demo_data_version',

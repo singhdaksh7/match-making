@@ -9,18 +9,27 @@ import { useAppData } from '@/context/AppDataContext'
 import { useToast } from '@/context/ToastContext'
 import { ApiError, apiClient } from '@/services/api/client'
 import type { Attribute, Product, ProductMedia, ProductVariant } from '@/types'
-import { formatINR } from '@/utils/format'
-import { variantsForProduct } from '@/utils/selectors'
+import { formatPriceRange } from '@/utils/format'
+import { variantLabel, variantPriceRange, variantsForProduct } from '@/utils/selectors'
 
-const STEPS = ['Basic Information', 'Category', 'Product Attributes', 'Variants / SKUs', 'Pricing / MOQ', 'Images', 'Save']
+const STEPS = ['Basic Information', 'Category', 'Product Attributes', 'Variants & Prices', 'MOQ', 'Images', 'Save']
 
 interface DraftVariant {
   key: string
   attributes: Record<string, string>
-  price: number
-  stock: number
+  /** Final selling price of this variant, as typed. Required and > 0 before the product can be saved. */
+  price: string
   enabled: boolean
   existingId?: string
+  /** Price stored on the server when the form opened (edit mode), to save only real changes. */
+  savedPrice?: number
+}
+
+/** Parses a typed rupee amount: positive, at most two decimals. */
+function parsePrice(text: string): number | null {
+  const value = Number(text)
+  if (!text.trim() || !Number.isFinite(value) || value <= 0) return null
+  return Math.abs(value * 100 - Math.round(value * 100)) < 1e-6 ? value : null
 }
 
 function attrKey(attr: Attribute) {
@@ -58,14 +67,13 @@ export default function ProductFormPage() {
     existingVariants.map((variant) => ({
       key: variant.id,
       attributes: variant.attributes,
-      price: variant.price,
-      stock: variant.stock,
+      price: String(variant.price),
       enabled: true,
       existingId: variant.id,
+      savedPrice: variant.price,
     })),
   )
-  const [wholesalePrice, setWholesalePrice] = useState(existing?.wholesalePrice ?? 0)
-  const [comparePrice, setComparePrice] = useState(existing?.comparePrice ?? 0)
+  const [bulkPrice, setBulkPrice] = useState('')
   const [moq, setMoq] = useState(existing?.moq ?? data.settings.catalogueDefaults.defaultMOQ)
   const [manualAttrs, setManualAttrs] = useState<Record<string, string>>({})
   const [pendingDeselect, setPendingDeselect] = useState<{ attrId: string; valueId: string; name: string; usedByVariants: boolean } | null>(null)
@@ -120,16 +128,10 @@ export default function ProductFormPage() {
       }
       combos = next
     }
-    setDraftVariants(
-      combos.map((attrs) => ({
-        key: Object.values(attrs).join('-'),
-        attributes: attrs,
-        price: wholesalePrice || 0,
-        stock: 0,
-        enabled: true,
-      })),
-    )
-    showToast(`${combos.length} combinations generated. Disable any that are not manufactured.`)
+    const have = new Set(draftVariants.map((item) => item.key))
+    const fresh = combos.map((attrs) => ({ key: Object.values(attrs).join('-'), attributes: attrs, price: '', enabled: true })).filter((item) => !have.has(item.key))
+    setDraftVariants((prev) => [...prev, ...fresh])
+    showToast(fresh.length ? `${fresh.length} combinations added. Enter a price for each, and untick any you do not make.` : 'Every combination is already in the list')
   }
 
   function addManualVariant() {
@@ -149,7 +151,7 @@ export default function ProductFormPage() {
       showToast('That combination is already in the list', 'error')
       return
     }
-    setDraftVariants((prev) => [...prev, { key, attributes, price: wholesalePrice || 0, stock: 0, enabled: true }])
+    setDraftVariants((prev) => [...prev, { key, attributes, price: '', enabled: true }])
   }
 
   async function handleImageUpload(files: FileList | null) {
@@ -167,11 +169,14 @@ export default function ProductFormPage() {
   }
 
   const allowedAttributeValueIds = Object.values(selectedValueIds).flat()
+  const pricedVariants = draftVariants.filter((item) => item.enabled)
+  const missingPrices = pricedVariants.filter((item) => parsePrice(item.price) === null).length
 
   function canProceed() {
     if (step === 0) return Boolean(name.trim() && code.trim())
     if (step === 1) return Boolean(categoryId)
-    if (step === 4) return wholesalePrice > 0 && moq > 0
+    if (step === 3) return pricedVariants.length > 0 && missingPrices === 0
+    if (step === 4) return moq > 0
     return true
   }
 
@@ -197,8 +202,6 @@ export default function ProductFormPage() {
         media: media.length ? media : [{ id: 'media-fallback', url: category?.imageUrl ?? '', isPrimary: true }],
         attributeIds,
         allowedAttributeValueIds,
-        wholesalePrice,
-        comparePrice: comparePrice || undefined,
         moq,
         status: 'active',
         views: existing?.views ?? 0,
@@ -210,12 +213,10 @@ export default function ProductFormPage() {
         productId,
         sku: `${code}-${Object.values(item.attributes).map((part) => part.slice(0, 3).toUpperCase()).join('-')}`,
         attributes: item.attributes,
-        price: item.price || wholesalePrice,
-        stock: item.stock,
-        reserved: 0,
+        price: parsePrice(item.price) ?? 0,
         status: 'active',
-        lowStockThreshold: 10,
       }))
+      if (pricedVariants.some((item) => parsePrice(item.price) === null)) { showToast('Every variant needs a price greater than zero', 'error'); return }
 
       if (isEdit) {
         await updateProduct(productId, product)
@@ -223,7 +224,11 @@ export default function ProductFormPage() {
         for (const item of media.filter((m) => !persistedMediaIds.has(m.id) && m.objectKey)) {
           await apiClient.post(`/api/v1/products/${productId}/media`, { objectKey: item.objectKey, mimeType: item.mimeType ?? 'image/jpeg' })
         }
+        for (const item of draftVariants.filter((v) => v.existingId && parsePrice(v.price) !== null && parsePrice(v.price) !== v.savedPrice)) {
+          await apiClient.patch(`/api/v1/products/${productId}/variants/${item.existingId}`, { price: parsePrice(item.price) })
+        }
         for (const variant of variants) await addVariant({ ...variant, productId })
+        await refreshData()
         const failures = await flushAttributePhotos(productId)
         if (failures) {
           showToast(`Product saved, but photos failed for ${failures}. Fix and save again.`, 'error')
@@ -359,33 +364,39 @@ export default function ProductFormPage() {
               Generate combinations (optional)
             </button>
             {draftVariants.length > 0 && (
-              <div className="max-h-80 overflow-y-auto overflow-x-auto rounded-xl border border-stone-200">
-                <table className="w-full min-w-[520px] text-sm">
-                  <thead className="sticky top-0 bg-stone-50">
-                    <tr className="text-left text-xs font-semibold uppercase text-stone-400">
-                      <th className="px-3 py-2">Combination</th>
-                      <th className="px-3 py-2">Price</th>
-                      <th className="px-3 py-2">Stock</th>
-                      <th className="px-3 py-2">Keep</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {draftVariants.map((variant, i) => (
-                      <tr key={variant.key} className="border-t border-stone-100">
-                        <td className="px-3 py-2 text-stone-700">{Object.values(variant.attributes).join(' / ')}</td>
-                        <td className="px-3 py-2">
-                          <input type="number" value={variant.price} onChange={(e) => setDraftVariants((prev) => prev.map((item, index) => index === i ? { ...item, price: Number(e.target.value) } : item))} className="h-10 w-24 rounded-lg border border-stone-200 px-2 text-sm" />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input type="number" value={variant.stock} onChange={(e) => setDraftVariants((prev) => prev.map((item, index) => index === i ? { ...item, stock: Number(e.target.value) } : item))} className="h-10 w-20 rounded-lg border border-stone-200 px-2 text-sm" />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input type="checkbox" checked={variant.enabled} onChange={(e) => setDraftVariants((prev) => prev.map((item, index) => index === i ? { ...item, enabled: e.target.checked } : item))} className="h-5 w-5" />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-3" data-testid="variant-price-list">
+                <div className="flex flex-wrap items-end gap-2 rounded-xl bg-stone-50 p-3">
+                  <label className="min-w-0 flex-1 text-xs font-semibold text-stone-600">Same price for every variant (optional shortcut)
+                    <input type="number" inputMode="decimal" min="0" step="0.01" value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder="₹ price" data-testid="bulk-price" className="mt-1 h-11 w-full rounded-xl border border-stone-200 px-3 text-sm font-medium text-stone-800" />
+                  </label>
+                  <button type="button" disabled={parsePrice(bulkPrice) === null} onClick={() => setDraftVariants((prev) => prev.map((item) => (item.enabled ? { ...item, price: bulkPrice } : item)))} className="h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold text-stone-700 disabled:opacity-40">Apply to all</button>
+                </div>
+                <ul className="divide-y divide-stone-100 rounded-xl border border-stone-200">
+                  {draftVariants.map((variant, i) => {
+                    const invalid = variant.enabled && parsePrice(variant.price) === null
+                    return (
+                      <li key={variant.key} className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 ${variant.enabled ? '' : 'opacity-50'}`}>
+                        <div className="min-w-0 flex-1 basis-40">
+                          <p className="truncate text-sm font-medium text-stone-800">{variantLabel({ attributes: variant.attributes, sku: variant.key })}</p>
+                          {variant.existingId && <p className="text-[11px] text-stone-400">Saved variant</p>}
+                        </div>
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-stone-500">
+                          Price ₹
+                          <input type="number" inputMode="decimal" min="0" step="0.01" aria-label={`Price for ${variantLabel({ attributes: variant.attributes, sku: variant.key })}`} data-testid="variant-price" value={variant.price} disabled={!variant.enabled}
+                            onChange={(e) => setDraftVariants((prev) => prev.map((item, index) => (index === i ? { ...item, price: e.target.value } : item)))}
+                            className={`h-11 w-28 rounded-lg border px-2.5 text-sm font-medium text-stone-900 ${invalid ? 'border-red-400 bg-red-50' : 'border-stone-200'}`} />
+                        </label>
+                        {!variant.existingId && (
+                          <label className="flex items-center gap-1.5 text-xs font-semibold text-stone-500">
+                            Keep
+                            <input type="checkbox" checked={variant.enabled} onChange={(e) => setDraftVariants((prev) => prev.map((item, index) => (index === i ? { ...item, enabled: e.target.checked } : item)))} className="h-5 w-5" />
+                          </label>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+                {missingPrices > 0 && <p role="alert" className="text-sm font-medium text-red-600">{missingPrices} variant{missingPrices === 1 ? ' needs' : 's need'} a price greater than zero.</p>}
               </div>
             )}
           </div>
@@ -393,12 +404,7 @@ export default function ProductFormPage() {
 
         {step === 4 && (
           <div className="space-y-4">
-            <Field label="Wholesale Price (₹)">
-              <input type="number" inputMode="decimal" value={wholesalePrice} onChange={(e) => setWholesalePrice(Number(e.target.value))} className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
-            </Field>
-            <Field label="Compare Price (₹, optional)">
-              <input type="number" inputMode="decimal" value={comparePrice} onChange={(e) => setComparePrice(Number(e.target.value))} className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
-            </Field>
+            <p className="text-sm text-stone-500">Each variant carries its own final price (set in the previous step). There is no stock to manage: every variant is always available.</p>
             <Field label="MOQ (Minimum Order Quantity)">
               <input type="number" inputMode="numeric" value={moq} onChange={(e) => setMoq(Number(e.target.value))} className="h-11 w-full rounded-xl border border-stone-200 px-3.5 text-sm" />
             </Field>
@@ -463,11 +469,11 @@ export default function ProductFormPage() {
                 <p className="font-mono text-xs font-semibold text-stone-400">{code}</p>
                 <p className="font-serif text-lg font-semibold text-stone-900">{name}</p>
                 <p className="text-sm text-stone-500">{category?.name}</p>
-                <p className="mt-1 text-sm font-semibold text-stone-800">{formatINR(wholesalePrice)} · MOQ {moq}</p>
+                <p className="mt-1 text-sm font-semibold text-stone-800">{formatPriceRange(variantPriceRange(pricedVariants.map((item) => ({ price: parsePrice(item.price) ?? 0 })))) || 'No variants'} · MOQ {moq}</p>
               </div>
             </div>
             <div className="rounded-xl bg-stone-50 p-4 text-sm text-stone-600">
-              <p>{draftVariants.filter((item) => item.enabled).length} variants will be kept.</p>
+              <p>{pricedVariants.length} variants, each with its own price, will be kept.</p>
               <p className="mt-1">{allowedAttributeValueIds.length} product-specific attribute values selected.</p>
               <p className="mt-1">{media.length} images uploaded.</p>
             </div>

@@ -1,9 +1,18 @@
+/** Whole rupees stay "₹620"; paise are shown only when present ("₹679.50"), so exact variant prices are never rounded away. */
 export function formatINR(amount: number): string {
+  const fractional = Math.abs(amount * 100 - Math.round(amount * 100)) < 1e-6 && Math.round(amount * 100) % 100 !== 0
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
-    maximumFractionDigits: 0,
+    minimumFractionDigits: fractional ? 2 : 0,
+    maximumFractionDigits: fractional ? 2 : 0,
   }).format(amount)
+}
+
+/** "₹620" for one price, "₹620 – ₹680" for a range. */
+export function formatPriceRange(range: { min: number; max: number } | undefined): string {
+  if (!range) return ''
+  return range.min === range.max ? formatINR(range.min) : `${formatINR(range.min)} – ${formatINR(range.max)}`
 }
 
 export function formatNumber(n: number): string {

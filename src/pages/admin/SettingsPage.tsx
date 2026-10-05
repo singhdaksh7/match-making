@@ -49,13 +49,6 @@ export default function SettingsPage() {
         </div>
       </Section>
 
-      <Section icon={Bell} title="Inventory Settings">
-        <div>
-          <p className="mb-1.5 text-xs font-semibold text-stone-600">Low Stock Threshold</p>
-          <p className="text-sm text-stone-500">Thresholds are configured per variant.</p>
-        </div>
-      </Section>
-
       <Section icon={Users} title="Users">
         <div className="flex items-center gap-3 rounded-xl border border-stone-100 p-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f5ede2] text-sm font-semibold text-[#7a5230]">

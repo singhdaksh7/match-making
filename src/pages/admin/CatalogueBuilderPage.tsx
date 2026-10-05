@@ -4,23 +4,20 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import QRCode from 'qrcode'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ColorSwatch } from '@/components/ui/ColorSwatch'
 import { ImageWithFallback } from '@/components/ui/ImageWithFallback'
 import { Modal } from '@/components/ui/Modal'
 import { useAppData } from '@/context/AppDataContext'
 import { useToast } from '@/context/ToastContext'
-import { COLORS } from '@/data/attributes'
 import { BRAND } from '@/config/brand'
+import { CatalogueVariantPicker, type ProductSelections, type VariantSelection } from '@/components/catalogue/CatalogueVariantPicker'
 import type { Catalogue, CatalogueItem, CatalogueSettings } from '@/types'
-import { formatINR } from '@/utils/format'
-import { applyPriceAdjustment, primaryImage, totalStockForProduct, variantsForProduct, waCatalogueLink } from '@/utils/selectors'
+import { formatINR, formatPriceRange } from '@/utils/format'
+import { activeVariantsForProduct, effectiveVariantPrice, primaryImage, variantLabel, variantPriceRange, waCatalogueLink } from '@/utils/selectors'
 
-const STEPS = ['Customer', 'Catalogue Info', 'Select Products', 'Variants', 'Settings', 'Preview', 'Generate']
+const STEPS = ['Customer', 'Catalogue Info', 'Select Products', 'Choose Variants', 'Settings', 'Review', 'Generate']
 
 const DEFAULT_SETTINGS: CatalogueSettings = {
   showWholesalePrice: true,
-  showExactStock: false,
-  showAvailability: true,
   showMOQ: true,
   allowProductSelection: true,
   allowEnquiry: true,
@@ -44,10 +41,10 @@ export default function CatalogueBuilderPage() {
   const [message, setMessage] = useState('')
   const [productQuery, setProductQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
-  const [readyStockOnly, setReadyStockOnly] = useState(false)
   const initialCollection = data.collections.find((c) => c.id === searchParams.get('collection'))
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(initialCollection?.productIds ?? []))
-  const [variantFilters, setVariantFilters] = useState<Record<string, { allVariants: boolean; colors: Set<string>; sizes: Set<string> }>>({})
+  // Which variants each selected product shares. Selecting a product starts with NOTHING shared: the admin must tick variants in step 4.
+  const [selections, setSelections] = useState<ProductSelections>(() => Object.fromEntries((initialCollection?.productIds ?? []).map((id) => [id, {}])))
+  const selectedIds = useMemo(() => new Set(Object.keys(selections)), [selections])
   const [settings, setSettings] = useState<CatalogueSettings>(DEFAULT_SETTINGS)
   const [devicePreview, setDevicePreview] = useState<'mobile' | 'desktop'>('mobile')
   const [generated, setGenerated] = useState<Catalogue | null>(null)
@@ -61,17 +58,18 @@ export default function CatalogueBuilderPage() {
     let list = data.products.filter((p) => p.status === 'active')
     if (productQuery.trim()) list = list.filter((p) => p.name.toLowerCase().includes(productQuery.toLowerCase()) || p.code.toLowerCase().includes(productQuery.toLowerCase()))
     if (categoryFilter) list = list.filter((p) => p.categoryId === categoryFilter)
-    if (readyStockOnly) list = list.filter((p) => totalStockForProduct(data, p.id) > 0)
     return list
-  }, [data, productQuery, categoryFilter, readyStockOnly])
+  }, [data, productQuery, categoryFilter])
 
   const selectedProducts = data.products.filter((p) => selectedIds.has(p.id))
+  const adjustmentPct = settings.priceAdjustmentType === 'percentage' ? settings.priceAdjustmentValue : 0
+  const reviewVariantCount = selectedProducts.reduce((n, p) => n + Object.keys(selections[p.id] ?? {}).length, 0)
 
   function toggleProduct(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+    setSelections((prev) => {
+      const next = { ...prev }
+      if (id in next) delete next[id]
+      else next[id] = {}
       return next
     })
   }
@@ -79,37 +77,30 @@ export default function CatalogueBuilderPage() {
   function toggleCategorySelect(categoryId: string) {
     const ids = data.products.filter((p) => p.categoryId === categoryId && p.status === 'active').map((p) => p.id)
     const allSelected = ids.every((id) => selectedIds.has(id))
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      ids.forEach((id) => (allSelected ? next.delete(id) : next.add(id)))
+    setSelections((prev) => {
+      const next = { ...prev }
+      ids.forEach((id) => { if (allSelected) delete next[id]; else if (!(id in next)) next[id] = {} })
       return next
     })
   }
 
-  function getVariantFilter(productId: string) {
-    return variantFilters[productId] ?? { allVariants: true, colors: new Set<string>(), sizes: new Set<string>() }
-  }
-
-  function updateVariantFilter(productId: string, patch: Partial<{ allVariants: boolean; colors: Set<string>; sizes: Set<string> }>) {
-    setVariantFilters((prev) => ({ ...prev, [productId]: { ...getVariantFilter(productId), ...patch } }))
+  function setProductSelection(productId: string, next: VariantSelection) {
+    setSelections((prev) => ({ ...prev, [productId]: next }))
   }
 
   function canProceed() {
     if (step === 0) return !!customerId
     if (step === 1) return name.trim().length > 0
     if (step === 2) return selectedIds.size > 0
+    if (step === 3) return selectedProducts.length > 0 && selectedProducts.every((p) => Object.keys(selections[p.id] ?? {}).length > 0)
     return true
   }
 
   function buildItems(): CatalogueItem[] {
-    return selectedProducts.map((p) => {
-      const vf = getVariantFilter(p.id)
-      if (vf.allVariants) return { productId: p.id, variantFilter: {}, allVariants: true }
-      const filter: Record<string, string[]> = {}
-      if (vf.colors.size > 0) filter.color = [...vf.colors]
-      if (vf.sizes.size > 0) filter.size = [...vf.sizes]
-      return { productId: p.id, variantFilter: filter, allVariants: false }
-    })
+    return selectedProducts.map((p) => ({
+      productId: p.id,
+      variants: Object.entries(selections[p.id] ?? {}).map(([variantId, customPrice]) => ({ variantId, customPrice })),
+    }))
   }
 
   function expiryToDate(expiry: CatalogueSettings['expiry']): string | null {
@@ -153,11 +144,11 @@ export default function CatalogueBuilderPage() {
 
   const catalogueLink = generated ? `${window.location.origin}/catalogue/${generated.slug}` : ''
   const designCount = generated?.items.length ?? 0
-  const variantCount = generated ? data.variants.filter((v) => generated.items.some((item) => item.productId === v.productId)).length : 0
+  const variantCount = generated ? generated.items.reduce((n, item) => n + item.variants.length, 0) : 0
   const designsLabel = `${designCount} ${designCount === 1 ? 'design' : 'designs'}`
   const accessLabel = generated?.expiresAt ? `Expires ${new Date(generated.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'No expiry'
   const waMessage = generated && customer
-    ? `Hi ${customer.contactPerson} 👋\n\nWe've prepared a private wholesale collection for ${customer.businessName}.\n\n📦 ${designsLabel}\n🎨 Multiple colours & variants\n✅ Ready stock available\n\nView your catalogue:\n${catalogueLink}\n\nSelect the designs, colours, sizes and quantities you're interested in and send us your enquiry directly.\n\n– ${BRAND.name}`
+    ? `Hi ${customer.contactPerson} 👋\n\nWe've prepared a private wholesale collection for ${customer.businessName}.\n\n📦 ${designsLabel}\n🎨 ${variantCount} ready-to-order variants\n\nView your catalogue:\n${catalogueLink}\n\nSelect the designs, colours, sizes and quantities you're interested in and send us your enquiry directly.\n\n– ${BRAND.name}`
     : ''
 
   return (
@@ -243,7 +234,6 @@ export default function CatalogueBuilderPage() {
                 <option value="">All categories</option>
                 {data.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <button onClick={() => setReadyStockOnly((v) => !v)} className={`rounded-xl border px-3.5 py-2.5 text-xs font-semibold ${readyStockOnly ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-stone-200 text-stone-600'}`}>✓ Ready Stock</button>
               {categoryFilter && (
                 <button onClick={() => toggleCategorySelect(categoryFilter)} className="rounded-xl border border-stone-200 px-3.5 py-2.5 text-xs font-semibold text-stone-600 hover:bg-stone-50">
                   Select category
@@ -267,7 +257,7 @@ export default function CatalogueBuilderPage() {
                 </div>
                 <div className="border border-t-0 border-stone-200 bg-white p-2.5">
                   <p className="truncate text-xs font-semibold text-stone-800">{p.name}</p>
-                  <p className="text-[11px] text-stone-400">{p.code} · {formatINR(p.wholesalePrice)}</p>
+                  <p className="text-[11px] text-stone-400">{p.code} · {activeVariantsForProduct(data, p.id).length} variants</p>
                 </div>
               </button>
             ))}
@@ -276,78 +266,19 @@ export default function CatalogueBuilderPage() {
       )}
 
       {step === 3 && (
-        <div className="space-y-4">
-          {selectedProducts.map((p) => {
-            const variants = variantsForProduct(data, p.id)
-            const colors = [...new Set(variants.map((v) => v.attributes.color).filter(Boolean))]
-            const sizes = [...new Set(variants.map((v) => v.attributes.size).filter(Boolean))]
-            const vf = getVariantFilter(p.id)
-            return (
-              <div key={p.id} className="rounded-2xl border border-stone-200 bg-white p-4">
-                <div className="mb-3 flex items-center gap-3">
-                  <ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-10 w-10 rounded-lg object-cover" />
-                  <div>
-                    <p className="text-sm font-semibold text-stone-800">{p.name}</p>
-                    <p className="text-xs text-stone-400">{p.code}</p>
-                  </div>
-                  <label className="ml-auto flex items-center gap-2 text-xs font-medium text-stone-600">
-                    <input type="checkbox" checked={vf.allVariants} onChange={(e) => updateVariantFilter(p.id, { allVariants: e.target.checked })} />
-                    All variants
-                  </label>
-                </div>
-                {!vf.allVariants && (
-                  <div className="space-y-3 border-t border-stone-100 pt-3">
-                    {colors.length > 0 && (
-                      <div>
-                        <p className="mb-1.5 text-[11px] font-semibold uppercase text-stone-400">Colors</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {colors.map((c) => {
-                            const hex = COLORS.find((cv) => cv.value === c)?.hex
-                            const isSelected = vf.colors.has(c!)
-                            return (
-                              <ColorSwatch key={c} hex={hex} name={c!} showLabel selected={isSelected} onClick={() => {
-                                const next = new Set(vf.colors)
-                                isSelected ? next.delete(c!) : next.add(c!)
-                                updateVariantFilter(p.id, { colors: next })
-                              }} />
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {sizes.length > 0 && (
-                      <div>
-                        <p className="mb-1.5 text-[11px] font-semibold uppercase text-stone-400">Sizes</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {sizes.map((s) => {
-                            const isSelected = vf.sizes.has(s!)
-                            return (
-                              <button key={s} onClick={() => {
-                                const next = new Set(vf.sizes)
-                                isSelected ? next.delete(s!) : next.add(s!)
-                                updateVariantFilter(p.id, { sizes: next })
-                              }} className={`rounded-full border px-3 py-1 text-xs font-medium ${isSelected ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 text-stone-600'}`}>
-                                {s}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+        <CatalogueVariantPicker
+          products={selectedProducts}
+          variantsFor={(productId) => activeVariantsForProduct(data, productId)}
+          selections={selections}
+          onChange={setProductSelection}
+          adjustmentPct={settings.priceAdjustmentType === 'percentage' ? settings.priceAdjustmentValue : 0}
+        />
       )}
 
       {step === 4 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <SettingsCard title="Display Options">
-            <Toggle label="Show Wholesale Price" checked={settings.showWholesalePrice} onChange={(v) => setSettings((s) => ({ ...s, showWholesalePrice: v }))} />
-            <Toggle label="Show Exact Stock" checked={settings.showExactStock} onChange={(v) => setSettings((s) => ({ ...s, showExactStock: v }))} />
-            <Toggle label="Show Availability" checked={settings.showAvailability} onChange={(v) => setSettings((s) => ({ ...s, showAvailability: v }))} />
+            <Toggle label="Show Prices" checked={settings.showWholesalePrice} onChange={(v) => setSettings((s) => ({ ...s, showWholesalePrice: v }))} />
             <Toggle label="Show MOQ" checked={settings.showMOQ} onChange={(v) => setSettings((s) => ({ ...s, showMOQ: v }))} />
           </SettingsCard>
           <SettingsCard title="Customer Interaction">
@@ -356,21 +287,25 @@ export default function CatalogueBuilderPage() {
             <Toggle label="Allow Image Download" checked={settings.allowImageDownload} onChange={(v) => setSettings((s) => ({ ...s, allowImageDownload: v }))} />
           </SettingsCard>
           <SettingsCard title="Price Adjustment">
-            <div className="grid grid-cols-3 gap-2">
-              <button onClick={() => setSettings((s) => ({ ...s, priceAdjustmentType: 'none', priceAdjustmentValue: 0 }))} className={`rounded-xl border py-2 text-xs font-semibold ${settings.priceAdjustmentType === 'none' ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 text-stone-600'}`}>Normal Pricing</button>
-              <button onClick={() => setSettings((s) => ({ ...s, priceAdjustmentType: 'percentage' }))} className={`rounded-xl border py-2 text-xs font-semibold ${settings.priceAdjustmentType === 'percentage' ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 text-stone-600'}`}>Percentage</button>
-              <button onClick={() => setSettings((s) => ({ ...s, priceAdjustmentType: 'custom' }))} className={`rounded-xl border py-2 text-xs font-semibold ${settings.priceAdjustmentType === 'custom' ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 text-stone-600'}`}>Custom Price</button>
+            <p className="text-xs text-stone-500">Applied to every selected variant's own price. Each variant keeps its own base price.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setSettings((s) => ({ ...s, priceAdjustmentType: 'none', priceAdjustmentValue: 0 }))} className={`min-h-11 rounded-xl border py-2 text-xs font-semibold ${settings.priceAdjustmentType === 'none' ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 text-stone-600'}`}>Normal Pricing</button>
+              <button onClick={() => setSettings((s) => ({ ...s, priceAdjustmentType: 'percentage' }))} className={`min-h-11 rounded-xl border py-2 text-xs font-semibold ${settings.priceAdjustmentType === 'percentage' ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 text-stone-600'}`}>Percentage</button>
             </div>
             {settings.priceAdjustmentType === 'percentage' && (
-              <div className="mt-2 flex gap-2">
-                {[-10, -5, 5, 10].map((v) => (
-                  <button key={v} onClick={() => setSettings((s) => ({ ...s, priceAdjustmentValue: v }))} className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${settings.priceAdjustmentValue === v ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 text-stone-600'}`}>
-                    {v > 0 ? `+${v}%` : `${v}%`}
-                  </button>
-                ))}
+              <div className="mt-2 space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  {[-10, -5, 5, 10].map((v) => (
+                    <button key={v} onClick={() => setSettings((s) => ({ ...s, priceAdjustmentValue: v }))} className={`min-h-10 rounded-lg border px-3 py-1.5 text-xs font-semibold ${settings.priceAdjustmentValue === v ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 text-stone-600'}`}>
+                      {v > 0 ? `+${v}%` : `${v}%`}
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 text-xs text-stone-500">Other %
+                  <input type="number" inputMode="decimal" min="-100" max="100" step="0.5" value={settings.priceAdjustmentValue} onChange={(e) => setSettings((s) => ({ ...s, priceAdjustmentValue: Math.max(-100, Math.min(100, Number(e.target.value) || 0)) }))} className="h-10 w-24 rounded-lg border border-stone-200 px-2 text-sm text-stone-800" />
+                </label>
               </div>
             )}
-            {settings.priceAdjustmentType === 'custom' && <input type="number" min="0" value={settings.priceAdjustmentValue || ''} onChange={(e) => setSettings((s) => ({ ...s, priceAdjustmentValue: Number(e.target.value) }))} placeholder="Customer price per piece (₹)" className="mt-2 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm" />}
           </SettingsCard>
           <SettingsCard title="Security & Expiry">
             <Toggle label="PIN Protection" checked={settings.pinProtected} onChange={(v) => setSettings((s) => ({ ...s, pinProtected: v }))} />
@@ -391,6 +326,25 @@ export default function CatalogueBuilderPage() {
 
       {step === 5 && (
         <div className="space-y-4">
+          <div className="rounded-2xl border border-stone-200 bg-white p-4" data-testid="catalogue-review">
+            <h3 className="text-sm font-semibold text-stone-800">Review shared variants</h3>
+            <p className="mb-3 text-xs text-stone-500">{reviewVariantCount} variant{reviewVariantCount === 1 ? '' : 's'} across {selectedProducts.length} product{selectedProducts.length === 1 ? '' : 's'}. Prices are what your customer will see{settings.priceAdjustmentType === 'percentage' && settings.priceAdjustmentValue ? ` (${settings.priceAdjustmentValue > 0 ? '+' : ''}${settings.priceAdjustmentValue}% applied)` : ''}.</p>
+            <div className="space-y-3">
+              {selectedProducts.map((p) => (
+                <div key={p.id}>
+                  <p className="text-sm font-semibold text-stone-800">{p.name} <span className="font-normal text-stone-400">{p.code}</span></p>
+                  <ul className="mt-1 divide-y divide-stone-100 rounded-xl border border-stone-100">
+                    {activeVariantsForProduct(data, p.id).filter((v) => v.id in (selections[p.id] ?? {})).map((v) => (
+                      <li key={v.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                        <span className="min-w-0 truncate text-stone-700">{variantLabel(v)}</span>
+                        <span className="shrink-0 font-semibold text-stone-900">{formatINR(effectiveVariantPrice(v.price, adjustmentPct, selections[p.id][v.id]))}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </div>
           <div className="flex justify-center gap-2">
             <button onClick={() => setDevicePreview('mobile')} className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-sm font-medium ${devicePreview === 'mobile' ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 text-stone-600'}`}>
               <Smartphone size={15} /> Mobile
@@ -407,17 +361,18 @@ export default function CatalogueBuilderPage() {
               <p className="mt-1 text-sm">{name}</p>
             </div>
             <div className={`grid gap-2 p-3 ${devicePreview === 'mobile' ? 'grid-cols-2' : 'grid-cols-4'}`}>
-              {selectedProducts.slice(0, devicePreview === 'mobile' ? 4 : 8).map((p) => (
-                <div key={p.id} className="overflow-hidden rounded-xl border border-stone-100">
-                  <div className="aspect-[3/4] bg-stone-100"><ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-full w-full object-cover" /></div>
-                  <div className="p-2">
-                    <p className="truncate text-[11px] font-semibold text-stone-800">{p.name}</p>
-                    {settings.showWholesalePrice && (
-                      <p className="text-[11px] font-bold text-stone-900">{formatINR(applyPriceAdjustment(p.wholesalePrice, { settings } as Catalogue))}</p>
-                    )}
+              {selectedProducts.slice(0, devicePreview === 'mobile' ? 4 : 8).map((p) => {
+                const range = variantPriceRange(activeVariantsForProduct(data, p.id).filter((v) => v.id in (selections[p.id] ?? {})).map((v) => ({ ...v, price: effectiveVariantPrice(v.price, adjustmentPct, selections[p.id][v.id]) })))
+                return (
+                  <div key={p.id} className="overflow-hidden rounded-xl border border-stone-100">
+                    <div className="aspect-[3/4] bg-stone-100"><ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-full w-full object-cover" /></div>
+                    <div className="p-2">
+                      <p className="truncate text-[11px] font-semibold text-stone-800">{p.name}</p>
+                      {settings.showWholesalePrice && range && <p className="text-[11px] font-bold text-stone-900">{formatPriceRange(range)}</p>}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>
@@ -468,7 +423,7 @@ export default function CatalogueBuilderPage() {
       <CatalogueQrModal open={qrOpen} onClose={() => setQrOpen(false)} url={catalogueLink} customerName={customer?.businessName ?? ''} catalogueName={generated?.name ?? ''} onCopy={() => { navigator.clipboard.writeText(catalogueLink); showToast('Catalogue link copied') }} />
 
       {step < 6 && (
-        <div className="sticky bottom-16 z-30 flex items-center justify-between border-t border-stone-200 bg-white/95 px-4 py-3 shadow-md backdrop-blur-md sm:bottom-0 sm:rounded-2xl sm:border">
+        <div className="sticky bottom-16 z-30 flex items-center justify-between border-t border-stone-200 bg-white/95 px-4 py-3 shadow-md backdrop-blur-md lg:bottom-0 sm:rounded-2xl sm:border">
           <button
             onClick={() => setStep((s) => Math.max(0, s - 1))}
             disabled={step === 0}

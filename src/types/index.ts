@@ -87,12 +87,11 @@ export interface ProductVariant {
   productId: string
   sku: string
   attributes: VariantAttributes
+  /** Final selling price of this variant (source of truth). On the public catalogue it already includes the catalogue's adjustment. */
   price: number
-  comparePrice?: number
-  stock: number
-  reserved: number
   status: 'active' | 'inactive'
-  lowStockThreshold: number
+  /** Public catalogue only: variant-specific photos (VariantMedia). */
+  images?: { url: string }[]
 }
 
 export type ProductStatus = 'active' | 'draft' | 'archived'
@@ -107,9 +106,11 @@ export interface Product {
   attributeIds: string[]
   /** Product-specific allowed AttributeValue ids. Not the global catalogue. */
   allowedAttributeValueIds: string[]
-  wholesalePrice: number
-  comparePrice?: number
   moq: number
+  /** Public catalogue only: lowest/highest catalogue price over the variants this catalogue exposes. */
+  priceRange?: { min: number; max: number }
+  /** Public catalogue only: the product's attribute types with their enabled values (display order). */
+  publicAttributes?: { name: string; key: string; kind: string; supportsImages: boolean; values: { value: string; hex?: string | null }[] }[]
   /** Public catalogue only: attribute-value-specific photos. */
   attributeImages?: ProductAttributeImageGroup[]
   /** Public catalogue only: lower-cased names of this product's attributes that support images. */
@@ -118,27 +119,6 @@ export interface Product {
   views: number
   createdAt: string
   updatedAt: string
-}
-
-export type InventoryReason =
-  | 'New Production'
-  | 'Customer Order'
-  | 'Damage'
-  | 'Correction'
-  | 'Return'
-
-export interface InventoryEntry {
-  id: string
-  variantId: string
-  productId: string
-  type: 'add' | 'remove' | 'set'
-  quantity: number
-  previousStock: number
-  newStock: number
-  reason: InventoryReason
-  note?: string
-  createdAt: string
-  createdBy: string
 }
 
 export type CustomerType = 'Wholesaler' | 'Retailer' | 'Distributor' | 'Reseller'
@@ -180,29 +160,28 @@ export interface Collection {
   createdAt: string
 }
 
-export interface CatalogueItemVariantSelection {
-  /** attribute key -> allowed values for this catalogue; empty/absent = all values allowed */
-  [attributeKey: string]: string[]
+/** The exact variants of one product that a catalogue exposes (persisted server-side). */
+export interface CatalogueItemVariant {
+  variantId: string
+  /** Optional price override for this variant in this catalogue only. */
+  customPrice?: number | null
 }
 
 export interface CatalogueItem {
   /** Server id of the catalogue entry (needed to remove it). */
   id?: string
   productId: string
-  variantFilter: CatalogueItemVariantSelection
-  allVariants: boolean
+  variants: CatalogueItemVariant[]
 }
 
 export interface CatalogueSettings {
   showWholesalePrice: boolean
-  showExactStock: boolean
-  showAvailability: boolean
   showMOQ: boolean
   allowProductSelection: boolean
   allowEnquiry: boolean
   allowImageDownload: boolean
-  priceAdjustmentType: 'none' | 'percentage' | 'custom'
-  priceAdjustmentValue: number // e.g. -10 for -10%
+  priceAdjustmentType: 'none' | 'percentage'
+  priceAdjustmentValue: number // percentage applied to every variant's base price, e.g. -10 for -10%
   pinProtected: boolean
   pin?: string
   expiry: '1d' | '7d' | '30d' | 'never'
@@ -244,7 +223,13 @@ export interface EnquiryItem {
   productId: string
   variantId: string
   quantity: number
+  /** Price of one piece at the time of the enquiry (snapshot). */
   priceAtEnquiry: number
+  /** Snapshots: still readable after the product/variant is edited or deleted. */
+  productName?: string
+  sku?: string
+  attributes?: VariantAttributes
+  imageUrl?: string | null
 }
 
 export interface Enquiry {
@@ -264,7 +249,7 @@ export interface Enquiry {
   timeline: { status: EnquiryStatus; at: string; note?: string }[]
 }
 
-export type NotificationType = 'enquiry' | 'low_stock' | 'catalogue_view' | 'catalogue_milestone'
+export type NotificationType = 'enquiry' | 'catalogue_view' | 'catalogue_milestone'
 
 export interface Notification {
   id: string
@@ -280,9 +265,7 @@ export interface AppSettings {
   business: Business
   catalogueDefaults: {
     showPrice: boolean
-    showStock: boolean
     defaultExpiry: CatalogueSettings['expiry']
     defaultMOQ: number
   }
-  lowStockThreshold: number
 }

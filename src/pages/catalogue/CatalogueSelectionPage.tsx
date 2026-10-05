@@ -8,7 +8,8 @@ import { useAppData } from '@/context/AppDataContext'
 import { useCatalogueSelection } from '@/hooks/useCatalogueSelection'
 import type { Enquiry } from '@/types'
 import { formatINR } from '@/utils/format'
-import { primaryImage } from '@/utils/selectors'
+import { variantThumbnail } from '@/utils/gallery'
+import { variantLabel } from '@/utils/selectors'
 
 export default function CatalogueSelectionPage() {
   const { slug } = useParams()
@@ -84,11 +85,11 @@ export default function CatalogueSelectionPage() {
             <div className="mb-4 rounded-2xl bg-stone-900 p-4 text-white"><p className="text-xs text-stone-300">{data.settings.business.name}</p><div className="mt-2 grid grid-cols-3 gap-2 text-center"><div><p className="text-lg font-bold">{designCount}</p><p className="text-[10px] text-stone-300">Designs</p></div><div><p className="text-lg font-bold">{rows.length}</p><p className="text-[10px] text-stone-300">Variants</p></div><div><p className="text-lg font-bold">{totalPieces}</p><p className="text-[10px] text-stone-300">Total Pieces</p></div></div>{catalogue.settings.showWholesalePrice && <p className="mt-3 border-t border-white/15 pt-3 text-center text-sm font-semibold">Estimated Value: {formatINR(estimatedValue)}</p>}</div>
             <div className="space-y-3">
               {rows.map((r) => (
-                <div key={r.variant.id} className="flex gap-3 rounded-2xl border border-stone-200 bg-white p-3">
-                  <ImageWithFallback src={primaryImage(r.product)} alt={r.product.name} className="h-16 w-16 shrink-0 rounded-xl object-cover" />
+                <div key={r.variant.id} data-testid="selection-line" className="flex gap-3 rounded-2xl border border-stone-200 bg-white p-3">
+                  <ImageWithFallback src={variantThumbnail(r.product, r.variant)} alt={r.product.name} className="h-16 w-16 shrink-0 rounded-xl object-cover" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-stone-800">{r.product.code} · {r.product.name}</p>
-                    <p className="text-xs text-stone-400">{r.variant.attributes.fabric ?? 'Fabric'} / {r.variant.attributes.color} / {r.variant.attributes.size}</p>
+                    <p className="text-xs text-stone-500" data-testid="selection-variant">{variantLabel(r.variant)} <span className="font-mono text-stone-400">{r.variant.sku}</span></p>
                     <div className="mt-2 flex items-center justify-between">
                       <QuantitySelector value={r.item.quantity} onChange={(q) => selection.updateQuantity(r.variant.id, q)} min={1} />
                       {catalogue.settings.showWholesalePrice && <p className="text-right text-xs font-semibold text-stone-700">{formatINR(r.variant.price)} · {formatINR(r.variant.price * r.item.quantity)}</p>}

@@ -13,7 +13,6 @@ const ProductDetailPage = lazy(() => import('@/pages/admin/ProductDetailPage'))
 const ProductFormPage = lazy(() => import('@/pages/admin/ProductFormPage'))
 const CategoriesPage = lazy(() => import('@/pages/admin/CategoriesPage'))
 const AttributesPage = lazy(() => import('@/pages/admin/AttributesPage'))
-const LowStockPage = lazy(() => import('@/pages/admin/LowStockPage'))
 const CollectionsPage = lazy(() => import('@/pages/admin/CollectionsPage'))
 const CustomersPage = lazy(() => import('@/pages/admin/CustomersPage'))
 const CustomerDetailPage = lazy(() => import('@/pages/admin/CustomerDetailPage'))
@@ -65,7 +64,7 @@ export default function App() {
 
                   <Route path="/categories" element={<CategoriesPage />} />
                   <Route path="/attributes" element={<AttributesPage />} />
-                  <Route path="/inventory/low-stock" element={<LowStockPage />} />
+                  <Route path="/inventory/low-stock" element={<Navigate to="/products" replace />} />
                   <Route path="/inventory/collections" element={<CollectionsPage />} />
 
                   <Route path="/customers" element={<CustomersPage />} />

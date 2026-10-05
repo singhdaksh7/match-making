@@ -8,36 +8,31 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DeleteDialog } from '@/components/ui/DeleteDialog'
 import { ImageWithFallback } from '@/components/ui/ImageWithFallback'
 import { StatusBadge } from '@/components/ui/StatusBadge'
-import { StockAdjustModal } from '@/components/inventory/StockAdjustModal'
 import { VariantTable } from '@/components/product/VariantTable'
 import { useAppData } from '@/context/AppDataContext'
 import { useToast } from '@/context/ToastContext'
 import { COLORS } from '@/data/attributes'
+import { ApiError } from '@/services/api/client'
 import type { ProductVariant } from '@/types'
-import { formatDate, formatINR, formatNumber } from '@/utils/format'
-import { categoryName, totalStockForProduct, variantsForProduct } from '@/utils/selectors'
+import { formatDate, formatNumber, formatPriceRange } from '@/utils/format'
+import { categoryName, variantPriceRange, variantsForProduct } from '@/utils/selectors'
 
 export default function ProductDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { data, archiveProduct, duplicateProduct, refreshData } = useAppData()
+  const { data, archiveProduct, duplicateProduct, refreshData, updateVariant } = useAppData()
   const { showToast } = useToast()
   const [activeImage, setActiveImage] = useState(0)
-  const [adjustingVariant, setAdjustingVariant] = useState<ProductVariant | null>(null)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deletingVariant, setDeletingVariant] = useState<ProductVariant | null>(null)
 
   const product = data.products.find((p) => p.id === id)
   const variants = useMemo(() => (product ? variantsForProduct(data, product.id) : []), [data, product])
-  const inventoryHistory = useMemo(
-    () => data.inventoryEntries.filter((e) => e.productId === id).slice(0, 8),
-    [data, id],
-  )
 
   if (!product) return <Navigate to="/products" replace />
 
-  const stock = totalStockForProduct(data, product.id)
+  const priceRange = variantPriceRange(variants)
   const colors = [...new Set(variants.map((v) => v.attributes.color).filter(Boolean))]
   const sizes = [...new Set(variants.map((v) => v.attributes.size).filter(Boolean))]
   const fabrics = [...new Set(variants.map((v) => v.attributes.fabric).filter(Boolean))]
@@ -105,9 +100,9 @@ export default function ProductDetailPage() {
           <p className="text-sm leading-relaxed text-stone-600">{product.description}</p>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <InfoTile label="Wholesale Price" value={formatINR(product.wholesalePrice)} icon={Tag} />
+            <InfoTile label="Variant Prices" value={formatPriceRange(priceRange) || 'Not set'} icon={Tag} />
             <InfoTile label="MOQ" value={`${product.moq} pcs`} icon={Package} />
-            <InfoTile label="Total Stock" value={formatNumber(stock)} icon={Boxes} />
+            <InfoTile label="Variants" value={formatNumber(variants.length)} icon={Boxes} />
             <InfoTile label="Views" value={formatNumber(product.views)} icon={Eye} />
             <InfoTile label="Date Added" value={formatDate(product.createdAt)} icon={Calendar} />
           </div>
@@ -138,29 +133,14 @@ export default function ProductDetailPage() {
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold text-stone-900">Variants ({variants.length})</h2>
         </div>
-        <VariantTable variants={variants} onAdjustStock={setAdjustingVariant} onDelete={setDeletingVariant} />
+        <VariantTable
+          variants={variants}
+          onPriceChange={async (variant, price) => { try { await updateVariant(variant.id, { price }); showToast('Variant price saved') } catch (error) { showToast(error instanceof ApiError ? error.message : 'Could not save the price', 'error'); throw error } }}
+          onToggleStatus={async (variant) => { try { await updateVariant(variant.id, { status: variant.status === 'active' ? 'inactive' : 'active' }); showToast(variant.status === 'active' ? 'Variant deactivated: customers can no longer pick it' : 'Variant activated') } catch (error) { showToast(error instanceof ApiError ? error.message : 'Could not update the variant', 'error') } }}
+          onDelete={setDeletingVariant}
+        />
       </div>
 
-      {inventoryHistory.length > 0 && (
-        <div>
-          <h2 className="mb-3 text-base font-semibold text-stone-900">Inventory History</h2>
-          <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
-            {inventoryHistory.map((e) => (
-              <div key={e.id} className="flex items-center justify-between border-b border-stone-50 px-4 py-3 text-sm last:border-0">
-                <div>
-                  <p className="font-medium text-stone-800">{e.reason}</p>
-                  <p className="text-xs text-stone-400">{formatDate(e.createdAt)} · {e.createdBy}</p>
-                </div>
-                <p className={`font-semibold ${e.type === 'add' ? 'text-emerald-600' : 'text-red-500'}`}>
-                  {e.type === 'add' ? '+' : '-'}{e.quantity} pcs
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <StockAdjustModal variant={adjustingVariant} onClose={() => setAdjustingVariant(null)} />
       {deleting && (
         <DeleteDialog
           open

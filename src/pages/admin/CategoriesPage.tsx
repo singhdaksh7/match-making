@@ -11,7 +11,7 @@ import { useToast } from '@/context/ToastContext'
 import { imagesForCategory } from '@/data/images'
 import type { Category } from '@/types'
 import { slugify } from '@/utils/format'
-import { totalStockForProduct, variantsForProduct } from '@/utils/selectors'
+import { variantsForProduct } from '@/utils/selectors'
 
 export default function CategoriesPage() {
   const { data, addCategory, updateCategory, refreshData } = useAppData()
@@ -26,12 +26,11 @@ export default function CategoriesPage() {
   const filtered = data.categories.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
 
   const stats = useMemo(() => {
-    const map: Record<string, { products: number; variants: number; stock: number }> = {}
+    const map: Record<string, { products: number; variants: number }> = {}
     for (const cat of data.categories) {
       const products = data.products.filter((p) => p.categoryId === cat.id)
       const variants = products.flatMap((p) => variantsForProduct(data, p.id))
-      const stock = products.reduce((sum, p) => sum + totalStockForProduct(data, p.id), 0)
-      map[cat.id] = { products: products.length, variants: variants.length, stock }
+      map[cat.id] = { products: products.length, variants: variants.length }
     }
     return map
   }, [data])
@@ -89,7 +88,7 @@ export default function CategoriesPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((cat) => {
-            const s = stats[cat.id] ?? { products: 0, variants: 0, stock: 0 }
+            const s = stats[cat.id] ?? { products: 0, variants: 0 }
             return (
               <div key={cat.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
                 <div className="relative h-32">
@@ -100,10 +99,9 @@ export default function CategoriesPage() {
                     <StatusBadge status={cat.status} />
                   </div>
                 </div>
-                <div className="grid grid-cols-3 divide-x divide-stone-100 border-b border-stone-100 text-center">
+                <div className="grid grid-cols-2 divide-x divide-stone-100 border-b border-stone-100 text-center">
                   <div className="py-3"><p className="text-sm font-bold text-stone-800">{s.products}</p><p className="text-[11px] text-stone-400">Products</p></div>
                   <div className="py-3"><p className="text-sm font-bold text-stone-800">{s.variants}</p><p className="text-[11px] text-stone-400">Variants</p></div>
-                  <div className="py-3"><p className="text-sm font-bold text-stone-800">{s.stock}</p><p className="text-[11px] text-stone-400">Pieces</p></div>
                 </div>
                 <div className="flex items-center justify-between px-4 py-3">
                   <button onClick={() => openEdit(cat)} className="text-xs font-semibold text-[#7a5230] hover:underline">Edit</button>

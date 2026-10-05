@@ -28,7 +28,7 @@ export function QuantitySelector({ value, onChange, min = 1, step = 1 }: Props) 
           const n = parseInt(e.target.value.replace(/\D/g, ''), 10)
           onChange(Number.isNaN(n) ? min : Math.max(min, n))
         }}
-        className="w-12 border-none bg-transparent text-center text-sm font-bold text-stone-900 focus:outline-none"
+        className="w-16 border-none bg-transparent text-center text-sm font-bold text-stone-900 focus:outline-none"
       />
       <button
         type="button"

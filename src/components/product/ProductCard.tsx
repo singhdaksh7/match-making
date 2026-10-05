@@ -1,17 +1,16 @@
-import { Boxes, Package } from 'lucide-react'
+import { Boxes } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ImageWithFallback } from '@/components/ui/ImageWithFallback'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { useAppData } from '@/context/AppDataContext'
 import type { Product } from '@/types'
-import { formatINR } from '@/utils/format'
-import { categoryName, primaryImage, totalStockForProduct, variantsForProduct } from '@/utils/selectors'
+import { formatPriceRange } from '@/utils/format'
+import { categoryName, primaryImage, variantPriceRange, variantsForProduct } from '@/utils/selectors'
 
 export function ProductCard({ product, onQuickView }: { product: Product; onQuickView?: (product: Product) => void }) {
   const { data } = useAppData()
   const variants = variantsForProduct(data, product.id)
-  const stock = totalStockForProduct(data, product.id)
-  const stockStatus = stock === 0 ? 'out of stock' : stock <= 20 ? 'low stock' : 'in stock'
+  const priceRange = variantPriceRange(variants)
 
   return (
     <div
@@ -34,12 +33,10 @@ export function ProductCard({ product, onQuickView }: { product: Product; onQuic
         <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-400">{categoryName(data, product.categoryId)}</p>
         <Link to={`/products/${product.id}`} className="line-clamp-2 text-sm font-semibold leading-snug text-stone-900">{product.name}</Link>
         <div className="mt-auto flex items-center justify-between pt-2">
-          <p className="text-sm font-bold text-stone-900">{formatINR(product.wholesalePrice)}<span className="font-normal text-stone-400">/pc</span></p>
-          <StatusBadge status={stockStatus} />
+          <p className="text-sm font-bold text-stone-900">{priceRange ? formatPriceRange(priceRange) : <span className="font-normal text-amber-600">Add variant prices</span>}</p>
         </div>
         <div className="flex items-center gap-3 border-t border-stone-100 pt-2 text-xs text-stone-500">
           <span className="flex items-center gap-1"><Boxes size={12} /> {variants.length} variants</span>
-          <span className="flex items-center gap-1"><Package size={12} /> {stock} pcs</span>
         </div>
         {onQuickView && <button onClick={() => onQuickView(product)} className="mt-1 rounded-lg border border-stone-200 py-1.5 text-xs font-semibold text-stone-600 hover:bg-stone-50">Quick View</button>}
       </div>

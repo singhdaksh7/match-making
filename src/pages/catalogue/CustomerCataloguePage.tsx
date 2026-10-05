@@ -106,7 +106,6 @@ function CatalogueContent({ catalogue, slug, query, setQuery, category, setCateg
           <div className="mt-3.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-stone-300">
             <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-medium">{products.length} Designs</span>
             <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-medium">{products.reduce((count: number, p: any) => count + catalogueProductVariants(data, catalogue, p).length, 0)} Variants</span>
-            <span className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 font-semibold text-emerald-300">Ready Stock</span>
           </div>
         </div>
         <div className="border-t border-white/10 bg-stone-900/95 px-4 py-3">

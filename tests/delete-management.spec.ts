@@ -40,15 +40,15 @@ async function seedProduct(api: APIRequestContext, tag: string) {
   const category = await post(api, '/categories', { name: `E2E Category ${tag}`, slug: `e2e-cat-${tag}`, attributeIds: [attribute.id] })
   const images = [await uploadImage(api), await uploadImage(api)]
   const product = await post(api, '/products', {
-    categoryId: category.id, code: `E2E-${tag}`, name: `E2E Kurti ${tag}`, basePrice: 100, moq: 1, attributeIds: [attribute.id], allowedAttributeValueIds: [rayon, cotton],
+    categoryId: category.id, code: `E2E-${tag}`, name: `E2E Kurti ${tag}`, moq: 1, attributeIds: [attribute.id], allowedAttributeValueIds: [rayon, cotton],
     media: images.map((m, i) => ({ objectKey: m.objectKey, mimeType: 'image/png', sizeBytes: m.sizeBytes, primary: i === 0, sortOrder: i })),
-    variants: [{ sku: `E2E-${tag}-R`, price: 100, stock: 5, attributeValueIds: [rayon] }, { sku: `E2E-${tag}-C`, price: 100, stock: 5, attributeValueIds: [cotton] }],
+    variants: [{ sku: `E2E-${tag}-R`, price: 100, attributeValueIds: [rayon] }, { sku: `E2E-${tag}-C`, price: 100, attributeValueIds: [cotton] }],
   })
   return { attribute, category, product, rayon, cotton }
 }
 const seedCustomer = (api: APIRequestContext, tag: string) => post(api, '/customers', { businessName: `E2E Buyer ${tag}`, contactPerson: 'Asha', phone: '+919800000009', type: 'WHOLESALER' })
-const seedCatalogue = (api: APIRequestContext, tag: string, productId: string, customerId?: string) =>
-  post(api, '/catalogues', { customerId, title: `E2E Catalogue ${tag}`, status: 'ACTIVE', showPrice: true, items: [{ productId }] })
+const seedCatalogue = (api: APIRequestContext, tag: string, product: { id: string; variants: { id: string }[] }, customerId?: string) =>
+  post(api, '/catalogues', { customerId, title: `E2E Catalogue ${tag}`, status: 'ACTIVE', showPrice: true, items: [{ productId: product.id, variants: product.variants.map((v) => ({ variantId: v.id })) }] })
 
 const dialog = (page: Page) => page.getByTestId('delete-dialog')
 /** the Attributes page auto-expands the first attribute: only toggle the header when the panel is not already open */
@@ -139,7 +139,7 @@ test('desktop: delete catalogue makes its public link unavailable; the customer 
   await login(page)
   const { product } = await seedProduct(page.request, tag)
   const customer = await seedCustomer(page.request, tag)
-  const catalogue = await seedCatalogue(page.request, tag, product.id, customer.id)
+  const catalogue = await seedCatalogue(page.request, tag, product, customer.id)
 
   // customer with a catalogue: blocked
   await page.goto(`${baseURL}/customers/${customer.id}`)
@@ -191,7 +191,7 @@ test('desktop: delete a general product image from the edit form (persists after
 
   // catalogue: remove one product but never the last one
   const second = await seedProduct(page.request, `${tag}b`)
-  const catalogue = await post(page.request, '/catalogues', { title: `E2E Multi ${tag}`, status: 'ACTIVE', items: [{ productId: product.id }, { productId: second.product.id }] })
+  const catalogue = await post(page.request, '/catalogues', { title: `E2E Multi ${tag}`, status: 'ACTIVE', items: [product, second.product].map((p) => ({ productId: p.id, variants: p.variants.map((v: { id: string }) => ({ variantId: v.id })) })) })
   await page.goto(`${baseURL}/catalogues/${catalogue.id}`)
   await expect(page.getByTestId('catalogue-item-remove')).toHaveCount(2)
   await page.getByTestId('catalogue-item-remove').first().click()
@@ -210,7 +210,7 @@ test('desktop: enquiries are history — open ones are protected, a CLOSED one c
   const tag = Date.now().toString(36)
   await login(page)
   const { product } = await seedProduct(page.request, tag)
-  const catalogue = await seedCatalogue(page.request, tag, product.id)
+  const catalogue = await seedCatalogue(page.request, tag, product)
   const full = await (await page.request.get(`${baseURL}/api/v1/products/${product.id}`)).json()
   const enquiry = await page.request.post(`${baseURL}/api/v1/public/catalogues/${catalogue.token}/enquiries`, { data: { contactName: 'Buyer E2E', phone: '+919811111111', items: [{ productId: product.id, variantId: full.data.variants[0].id, quantity: 3 }] } })
   expect(enquiry.status()).toBeLessThan(300)

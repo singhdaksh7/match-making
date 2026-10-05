@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, Shirt, FolderTree, Sliders, AlertTriangle,
+  LayoutDashboard, Shirt, FolderTree, Sliders,
   Users, BookOpen, MessageSquare, BarChart3, Settings, LogOut, Layers,
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
@@ -10,12 +10,11 @@ import { cn } from '@/utils/cn'
 const NAV = [
   { section: null, items: [{ to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
   {
-    section: 'Inventory',
+    section: 'Products',
     items: [
       { to: '/products', label: 'Products', icon: Shirt },
       { to: '/categories', label: 'Categories', icon: FolderTree },
       { to: '/attributes', label: 'Attributes', icon: Sliders },
-      { to: '/inventory/low-stock', label: 'Low Stock', icon: AlertTriangle },
       { to: '/inventory/collections', label: 'Collections', icon: Layers },
     ],
   },

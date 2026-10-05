@@ -45,7 +45,7 @@ export function LoginPage() {
         <div className="relative max-w-md">
           <p className="font-serif text-4xl font-medium leading-tight">Wholesale catalogues, made simple.</p>
           <p className="mt-4 text-sm text-stone-300">
-            Manage your inventory, build personalized catalogues, and turn WhatsApp conversations into wholesale orders — all from one dashboard.
+            Manage your products, build personalized catalogues, and turn WhatsApp conversations into wholesale orders — all from one dashboard.
           </p>
         </div>
       </div>

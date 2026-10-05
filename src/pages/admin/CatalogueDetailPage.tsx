@@ -1,21 +1,26 @@
-import { ArrowLeft, Copy, ExternalLink, Eye, MessageCircle, Users, Printer, MousePointerClick, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Copy, ExternalLink, Eye, MessageCircle, Users, Printer, MousePointerClick, Trash2, X, Pencil } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { CatalogueVariantPicker, type ProductSelections } from '@/components/catalogue/CatalogueVariantPicker'
 import { DeleteDialog } from '@/components/ui/DeleteDialog'
+import { Modal } from '@/components/ui/Modal'
 import { ImageWithFallback } from '@/components/ui/ImageWithFallback'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { useAppData } from '@/context/AppDataContext'
 import { useToast } from '@/context/ToastContext'
-import { formatDate } from '@/utils/format'
-import { customerName, effectiveCatalogueStatus, primaryImage, waCatalogueLink } from '@/utils/selectors'
+import { ApiError } from '@/services/api/client'
+import { formatDate, formatINR } from '@/utils/format'
+import { activeVariantsForProduct, customerName, effectiveCatalogueStatus, effectiveVariantPrice, primaryImage, variantLabel, variantsForProduct, waCatalogueLink } from '@/utils/selectors'
 
 export default function CatalogueDetailPage() {
   const { id } = useParams()
-  const { data, refreshData } = useAppData()
+  const { data, refreshData, updateCatalogue } = useAppData()
   const { showToast } = useToast()
   const navigate = useNavigate()
   const [deleting, setDeleting] = useState(false)
   const [removingItem, setRemovingItem] = useState<{ id: string; name: string } | null>(null)
+  const [editing, setEditing] = useState<ProductSelections | null>(null)
+  const [saving, setSaving] = useState(false)
 
   const catalogue = data.catalogues.find((c) => c.id === id)
   const customer = catalogue ? data.customers.find((c) => c.id === catalogue.customerId) : undefined
@@ -25,6 +30,26 @@ export default function CatalogueDetailPage() {
     [catalogue, data],
   )
   const products = entries.map((e) => e.product)
+  const adjustmentPct = catalogue?.settings.priceAdjustmentType === 'percentage' ? catalogue.settings.priceAdjustmentValue : 0
+
+  function openEditor() {
+    if (!catalogue) return
+    setEditing(Object.fromEntries(catalogue.items.map((item) => [item.productId, Object.fromEntries(item.variants.map((v) => [v.variantId, v.customPrice ?? null]))])))
+  }
+
+  async function saveSelection() {
+    if (!catalogue || !editing) return
+    setSaving(true)
+    try {
+      await updateCatalogue(catalogue.id, { items: Object.entries(editing).map(([productId, chosen]) => ({ productId, variants: Object.entries(chosen).map(([variantId, customPrice]) => ({ variantId, customPrice })) })) })
+      showToast('Shared variants updated')
+      setEditing(null)
+    } catch (error) {
+      showToast(error instanceof ApiError ? error.message : 'Could not update the catalogue', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (!catalogue) return <Navigate to="/catalogues" replace />
 
@@ -45,7 +70,7 @@ export default function CatalogueDetailPage() {
           <p className="mt-1 text-sm text-stone-500">For {customerName(data, catalogue.customerId)} · Created {formatDate(catalogue.createdAt)}</p>
           {catalogue.message && <p className="mt-2 max-w-lg text-sm italic text-stone-500">"{catalogue.message}"</p>}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button onClick={() => { navigator.clipboard.writeText(link); showToast('Catalogue link copied') }} className="flex items-center gap-1.5 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-50">
             <Copy size={14} /> Copy Link
           </button>
@@ -72,24 +97,47 @@ export default function CatalogueDetailPage() {
 
       <div className="grid gap-4 lg:grid-cols-2"><div className="rounded-2xl border border-stone-200 bg-white p-5"><h2 className="mb-3 text-base font-semibold text-stone-900">Most Viewed Products</h2>{products.slice().sort((a, b) => (b?.views ?? 0) - (a?.views ?? 0)).slice(0, 3).map((p) => p && <div key={p.id} className="flex justify-between border-t border-stone-100 py-2.5 text-sm"><span className="font-medium text-stone-700">{p.code} · {p.name}</span><span className="text-stone-400">{p.views} views</span></div>)}</div><div className="rounded-2xl border border-stone-200 bg-white p-5"><h2 className="mb-3 text-base font-semibold text-stone-900">Customer Activity</h2>{data.customerActivities.filter((a) => a.customerId === catalogue.customerId).slice(0, 3).map((a) => <div key={a.id} className="border-t border-stone-100 py-2.5"><p className="text-sm font-medium text-stone-700">{a.title}</p><p className="text-xs text-stone-400">{a.detail}</p></div>)}</div></div>
 
-      <div>
-        <h2 className="mb-3 text-base font-semibold text-stone-900">Products in this Catalogue ({products.length})</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {entries.map(({ item, product: p }) => p && (
-            <div key={item.id ?? p.id} className="relative">
-              <Link to={`/products/${p.id}`} className="block overflow-hidden rounded-xl border border-stone-200 bg-white hover:shadow-md">
-                <div className="aspect-[3/4] bg-stone-100"><ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-full w-full object-cover" /></div>
-                <div className="p-2">
-                  <p className="truncate text-xs font-semibold text-stone-800">{p.name}</p>
-                  <p className="text-[11px] text-stone-400">{p.code}</p>
+      <div data-testid="catalogue-products">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-stone-900">Products in this Catalogue ({products.length})</h2>
+          <button type="button" data-testid="edit-shared-variants" onClick={openEditor} className="flex h-10 items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3.5 text-sm font-semibold text-stone-700 hover:bg-stone-50">
+            <Pencil size={14} /> Edit shared variants
+          </button>
+        </div>
+        <div className="space-y-3">
+          {entries.map(({ item, product: p }) => {
+            if (!p) return null
+            const shared = new Map(item.variants.map((v) => [v.variantId, v.customPrice]))
+            const sharedVariants = variantsForProduct(data, p.id).filter((v) => shared.has(v.id))
+            return (
+              <div key={item.id ?? p.id} data-testid={`catalogue-entry-${p.code}`} className="rounded-2xl border border-stone-200 bg-white p-3.5">
+                <div className="flex items-center gap-3">
+                  <Link to={`/products/${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                    <ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-14 w-14 shrink-0 rounded-xl object-cover" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-stone-800">{p.name}</p>
+                      <p className="text-xs text-stone-400">{p.code} · {sharedVariants.length} of {variantsForProduct(data, p.id).length} variants shared</p>
+                    </div>
+                  </Link>
+                  {item.id && (
+                    <button type="button" aria-label={`Remove ${p.name} from catalogue`} data-testid="catalogue-item-remove" onClick={() => setRemovingItem({ id: item.id!, name: p.name })}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-stone-500 hover:bg-red-50 hover:text-red-600"><X size={16} /></button>
+                  )}
                 </div>
-              </Link>
-              {item.id && (
-                <button type="button" aria-label={`Remove ${p.name} from catalogue`} data-testid="catalogue-item-remove" onClick={() => setRemovingItem({ id: item.id!, name: p.name })}
-                  className="absolute right-1.5 top-1.5 rounded-full bg-white/95 p-1.5 text-stone-600 shadow hover:bg-white hover:text-red-600"><X size={13} /></button>
-              )}
-            </div>
-          ))}
+                {sharedVariants.length === 0 ? (
+                  <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">No variants shared: customers cannot see this product. Use “Edit shared variants”.</p>
+                ) : (
+                  <ul className="mt-3 flex flex-wrap gap-1.5" data-testid="shared-variant-list">
+                    {sharedVariants.map((v) => (
+                      <li key={v.id} className="rounded-lg bg-stone-100 px-2.5 py-1 text-xs text-stone-700">
+                        {variantLabel(v)} <span className="font-semibold text-stone-900">{formatINR(effectiveVariantPrice(v.price, adjustmentPct, shared.get(v.id)))}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
 
@@ -109,6 +157,21 @@ export default function CatalogueDetailPage() {
           </div>
         </div>
       )}
+      <Modal
+        open={Boolean(editing)} onClose={() => setEditing(null)} title="Edit shared variants" size="xl"
+        footer={<div className="flex gap-2"><button type="button" onClick={() => setEditing(null)} className="h-11 flex-1 rounded-xl border border-stone-200 text-sm font-semibold text-stone-700">Cancel</button>
+          <button type="button" data-testid="save-shared-variants" disabled={saving || !editing || products.some((p) => p && Object.keys(editing[p.id] ?? {}).length === 0)} onClick={saveSelection} className="h-11 flex-1 rounded-xl bg-stone-900 text-sm font-semibold text-white disabled:opacity-40">{saving ? 'Saving…' : 'Save changes'}</button></div>}
+      >
+        {editing && (
+          <CatalogueVariantPicker
+            products={products.filter((p): p is NonNullable<typeof p> => Boolean(p))}
+            variantsFor={(productId) => activeVariantsForProduct(data, productId)}
+            selections={editing}
+            onChange={(productId, next) => setEditing((prev) => ({ ...(prev ?? {}), [productId]: next }))}
+            adjustmentPct={adjustmentPct}
+          />
+        )}
+      </Modal>
       {deleting && (
         <DeleteDialog open onClose={() => setDeleting(false)} entityLabel="Catalogue" collection="catalogues" id={catalogue.id}
           deletePath={`/api/v1/catalogues/${catalogue.id}`} onDeleted={async () => { await refreshData(); navigate('/catalogues') }} />

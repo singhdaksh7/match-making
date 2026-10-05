@@ -12,10 +12,10 @@ const TONE_STYLES: Record<Tone, string> = {
 }
 
 const STATUS_MAP: Record<string, Tone> = {
-  active: 'success', 'in stock': 'success', converted: 'success', paid: 'success',
-  low: 'warning', 'low stock': 'warning', negotiating: 'warning', contacted: 'info', new: 'brand',
+  active: 'success', converted: 'success', paid: 'success',
+  low: 'warning', negotiating: 'warning', contacted: 'info', new: 'brand',
   archived: 'neutral', inactive: 'neutral', draft: 'neutral', closed: 'neutral',
-  'out of stock': 'danger', disabled: 'danger', expired: 'danger', damage: 'danger',
+  disabled: 'danger', expired: 'danger', damage: 'danger',
 }
 
 export function StatusBadge({ status, label }: { status: string; label?: string }) {

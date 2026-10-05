@@ -22,8 +22,8 @@ async function seed(page: Page) {
   const make = async (path: string, data: unknown) => { const r = await api.post(`${baseURL}/api/v1${path}`, { data }); expect(r.status(), path).toBeLessThan(300); return (await r.json()).data }
   const attribute = await make('/attributes', { name: `Fabric ${tag}`, kind: 'SELECT', values: [{ value: 'Rayon' }] })
   const category = await make('/categories', { name: `Kurtis ${tag}`, slug: `kurtis-${tag}`, attributeIds: [attribute.id] })
-  const product = await make('/products', { categoryId: category.id, code: `LNK-${tag}`, name: productName, basePrice: 100, moq: 1, attributeIds: [attribute.id], allowedAttributeValueIds: [attribute.values[0].id],
-    variants: [{ sku: `LNK-${tag}-R`, price: 100, stock: 5, attributeValueIds: [attribute.values[0].id] }] })
+  const product = await make('/products', { categoryId: category.id, code: `LNK-${tag}`, name: productName, moq: 1, attributeIds: [attribute.id], allowedAttributeValueIds: [attribute.values[0].id],
+    variants: [{ sku: `LNK-${tag}-R`, price: 100, attributeValueIds: [attribute.values[0].id] }] })
   const customer = await make('/customers', { businessName: customerName, contactPerson: 'Raj', phone: '+919800000008', type: 'WHOLESALER' })
   return { attribute, category, product, customer }
 }
@@ -50,9 +50,10 @@ async function createCatalogueThroughWizard(page: Page, title: string) {
   await page.getByText('Catalogue Name').locator('..').locator('input').fill(title)
   await next.click()
   await page.getByRole('button', { name: new RegExp(productName) }).first().click()
-  await next.click() // variants
-  await next.click() // settings
-  await next.click() // preview
+  await next.click() // -> variants step
+  await page.getByTestId('select-all-variants').first().click() // explicit: share every variant of the product
+  await next.click() // -> settings
+  await next.click() // -> review
   await page.getByRole('button', { name: /Generate Catalogue Link/ }).click()
   await expect(page.getByText('Your private catalogue is ready')).toBeVisible()
   const link = (await page.locator('p.font-mono').innerText()).trim()

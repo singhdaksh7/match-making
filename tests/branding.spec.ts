@@ -87,10 +87,10 @@ test('public catalogue shows the Business name from the API; token resolves; sel
   const make = async (path: string, data: unknown) => { const r = await api.post(`${baseURL}/api/v1${path}`, { data }); expect(r.status(), path).toBeLessThan(300); return (await r.json()).data }
   const attribute = await make('/attributes', { name: `Fabric ${tag}`, kind: 'SELECT', values: [{ value: 'Rayon' }] })
   const category = await make('/categories', { name: `Kurtis ${tag}`, slug: `kurtis-${tag}`, attributeIds: [attribute.id] })
-  const product = await make('/products', { categoryId: category.id, code: `BRD-${tag}`, name: `Brand Kurti ${tag}`, basePrice: 100, moq: 1, attributeIds: [attribute.id], allowedAttributeValueIds: [attribute.values[0].id],
-    variants: [{ sku: `BRD-${tag}-R`, price: 100, stock: 5, attributeValueIds: [attribute.values[0].id] }] })
+  const product = await make('/products', { categoryId: category.id, code: `BRD-${tag}`, name: `Brand Kurti ${tag}`, moq: 1, attributeIds: [attribute.id], allowedAttributeValueIds: [attribute.values[0].id],
+    variants: [{ sku: `BRD-${tag}-R`, price: 100, attributeValueIds: [attribute.values[0].id] }] })
   const customer = await make('/customers', { businessName: `Brand Buyer ${tag}`, contactPerson: 'Asha', phone: '+919800000010', type: 'WHOLESALER' })
-  const catalogue = await make('/catalogues', { customerId: customer.id, title: `Brand catalogue ${tag}`, status: 'ACTIVE', showPrice: true, showExactStock: false, showAvailability: true, showMOQ: true, allowSelection: true, allowEnquiry: true, allowImageDownload: false, priceAdjustmentPct: 0, items: [{ productId: product.id }] })
+  const catalogue = await make('/catalogues', { customerId: customer.id, title: `Brand catalogue ${tag}`, status: 'ACTIVE', showPrice: true, showMOQ: true, allowSelection: true, allowEnquiry: true, allowImageDownload: false, priceAdjustmentPct: 0, items: [{ productId: product.id, variants: product.variants.map((v: { id: string }) => ({ variantId: v.id })) }] })
 
   const publicJson = await (await api.get(`${baseURL}/api/v1/public/catalogues/${catalogue.token}`)).json()
   expect(typeof publicJson.data.business.name).toBe('string')

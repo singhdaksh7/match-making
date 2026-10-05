@@ -10,11 +10,15 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { Modal } from '@/components/ui/Modal'
 import { useAppData } from '@/context/AppDataContext'
 import { ATTRIBUTES } from '@/data/attributes'
-import { formatINR } from '@/utils/format'
-import { categoryName, primaryImage, totalStockForProduct, variantsForProduct } from '@/utils/selectors'
+import { formatPriceRange } from '@/utils/format'
+import { categoryName, primaryImage, variantPriceRange, variantsForProduct } from '@/utils/selectors'
 import type { Product } from '@/types'
 
-type SortKey = 'newest' | 'oldest' | 'price-asc' | 'price-desc' | 'stock' | 'views'
+type SortKey = 'newest' | 'oldest' | 'price-asc' | 'price-desc' | 'views'
+
+const lowestPrice = (data: Parameters<typeof variantsForProduct>[0], productId: string) => variantPriceRange(variantsForProduct(data, productId))?.min ?? Number.POSITIVE_INFINITY
+const highestPrice = (data: Parameters<typeof variantsForProduct>[0], productId: string) => variantPriceRange(variantsForProduct(data, productId))?.max ?? Number.NEGATIVE_INFINITY
+const priceLabel = (data: Parameters<typeof variantsForProduct>[0], productId: string) => formatPriceRange(variantPriceRange(variantsForProduct(data, productId))) || 'No price yet'
 
 export default function ProductsPage() {
   const { data } = useAppData()
@@ -25,7 +29,6 @@ export default function ProductsPage() {
   const [category, setCategory] = useState('')
   const [fabric, setFabric] = useState('')
   const [color, setColor] = useState('')
-  const [availability, setAvailability] = useState('')
   const [quickProduct, setQuickProduct] = useState<Product | null>(null)
 
   const fabricValues = ATTRIBUTES.find((a) => a.id === 'attr-fabric')?.values ?? []
@@ -44,28 +47,18 @@ export default function ProductsPage() {
     if (color) {
       list = list.filter((p) => variantsForProduct(data, p.id).some((v) => v.attributes.color === color))
     }
-    if (availability) {
-      list = list.filter((p) => {
-        const stock = totalStockForProduct(data, p.id)
-        if (availability === 'in-stock') return stock > 20
-        if (availability === 'low') return stock > 0 && stock <= 20
-        return stock === 0
-      })
-    }
-
     const sorted = [...list]
     switch (sort) {
       case 'newest': sorted.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)); break
       case 'oldest': sorted.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt)); break
-      case 'price-asc': sorted.sort((a, b) => a.wholesalePrice - b.wholesalePrice); break
-      case 'price-desc': sorted.sort((a, b) => b.wholesalePrice - a.wholesalePrice); break
-      case 'stock': sorted.sort((a, b) => totalStockForProduct(data, b.id) - totalStockForProduct(data, a.id)); break
+      case 'price-asc': sorted.sort((a, b) => (lowestPrice(data, a.id)) - (lowestPrice(data, b.id))); break
+      case 'price-desc': sorted.sort((a, b) => (highestPrice(data, b.id)) - (highestPrice(data, a.id))); break
       case 'views': sorted.sort((a, b) => b.views - a.views); break
     }
     return sorted
-  }, [data, query, sort, category, fabric, color, availability])
+  }, [data, query, sort, category, fabric, color])
 
-  const activeFilterCount = [category, fabric, color, availability].filter(Boolean).length
+  const activeFilterCount = [category, fabric, color].filter(Boolean).length
 
   return (
     <div className="space-y-5">
@@ -97,7 +90,6 @@ export default function ProductsPage() {
             <option value="oldest">Oldest</option>
             <option value="price-asc">Price: Low to High</option>
             <option value="price-desc">Price: High to Low</option>
-            <option value="stock">Stock</option>
             <option value="views">Most Viewed</option>
           </select>
           <div className="flex rounded-xl border border-stone-200 bg-white p-1">
@@ -133,7 +125,7 @@ export default function ProductsPage() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-stone-800">{p.name}</p>
                     <p className="text-xs text-stone-400">{p.code} · {categoryName(data, p.categoryId)}</p>
-                    <p className="mt-1 text-xs font-bold text-stone-900">{formatINR(p.wholesalePrice)} <span className="font-normal text-stone-400">({totalStockForProduct(data, p.id)} pcs)</span></p>
+                    <p className="mt-1 text-xs font-bold text-stone-900">{priceLabel(data, p.id)} <span className="font-normal text-stone-400">({variantsForProduct(data, p.id).length} variants)</span></p>
                   </div>
                 </Link>
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -153,7 +145,6 @@ export default function ProductsPage() {
                   <th className="px-4 py-3">Category</th>
                   <th className="px-4 py-3">Price</th>
                   <th className="px-4 py-3">Variants</th>
-                  <th className="px-4 py-3">Stock</th>
                   <th className="px-4 py-3">Status</th>
                 </tr>
               </thead>
@@ -170,9 +161,8 @@ export default function ProductsPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-stone-600">{categoryName(data, p.categoryId)}</td>
-                    <td className="px-4 py-3 font-semibold text-stone-800">{formatINR(p.wholesalePrice)}</td>
+                    <td className="px-4 py-3 font-semibold text-stone-800">{priceLabel(data, p.id)}</td>
                     <td className="px-4 py-3 text-stone-600">{variantsForProduct(data, p.id).length}</td>
-                    <td className="px-4 py-3 text-stone-600">{totalStockForProduct(data, p.id)}</td>
                     <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
                   </tr>
                 ))}
@@ -186,7 +176,7 @@ export default function ProductsPage() {
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
         onApply={() => {}}
-        onClear={() => { setCategory(''); setFabric(''); setColor(''); setAvailability('') }}
+        onClear={() => { setCategory(''); setFabric(''); setColor('') }}
       >
         <FilterGroup label="Category">
           <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm">
@@ -206,17 +196,9 @@ export default function ProductsPage() {
             {colorValues.map((v) => <option key={v.id} value={v.value}>{v.value}</option>)}
           </select>
         </FilterGroup>
-        <FilterGroup label="Availability">
-          <select value={availability} onChange={(e) => setAvailability(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm">
-            <option value="">All</option>
-            <option value="in-stock">In Stock</option>
-            <option value="low">Low Stock</option>
-            <option value="out">Out of Stock</option>
-          </select>
-        </FilterGroup>
       </FilterDrawer>
       <Modal open={!!quickProduct} onClose={() => setQuickProduct(null)} title="Product Quick View" size="lg" footer={quickProduct && <div className="flex gap-2"><Link to={`/products/${quickProduct.id}`} className="flex-1 rounded-xl border border-stone-200 py-2.5 text-center text-sm font-semibold text-stone-700">View Full Product</Link><Link to={`/catalogues/new`} className="flex-1 rounded-xl bg-stone-900 py-2.5 text-center text-sm font-semibold text-white">Create Catalogue</Link></div>}>
-        {quickProduct && <div className="grid gap-5 sm:grid-cols-2"><ImageWithFallback src={primaryImage(quickProduct)} alt={quickProduct.name} className="aspect-[3/4] w-full rounded-2xl object-cover" /><div><p className="font-mono text-xs font-semibold text-stone-400">{quickProduct.code}</p><h2 className="mt-1 font-serif text-xl font-semibold text-stone-900">{quickProduct.name}</h2><p className="mt-1 text-sm text-stone-500">{categoryName(data, quickProduct.categoryId)}</p><p className="mt-4 text-xl font-bold text-stone-900">{formatINR(quickProduct.wholesalePrice)} <span className="text-sm font-normal text-stone-400">Wholesale Price</span></p><div className="mt-4 grid grid-cols-2 gap-2 text-sm"><p className="rounded-xl bg-stone-50 p-3 text-stone-600">MOQ<br/><b className="text-stone-900">{quickProduct.moq} pcs</b></p><p className="rounded-xl bg-stone-50 p-3 text-stone-600">Stock<br/><b className="text-stone-900">{totalStockForProduct(data, quickProduct.id)} pcs</b></p><p className="rounded-xl bg-stone-50 p-3 text-stone-600">Variants<br/><b className="text-stone-900">{variantsForProduct(data, quickProduct.id).length}</b></p><p className="rounded-xl bg-stone-50 p-3 text-stone-600">Fabrics<br/><b className="text-stone-900">{[...new Set(variantsForProduct(data, quickProduct.id).map(v => v.attributes.fabric).filter(Boolean))].join(', ')}</b></p></div></div></div>}
+        {quickProduct && <div className="grid gap-5 sm:grid-cols-2"><ImageWithFallback src={primaryImage(quickProduct)} alt={quickProduct.name} className="aspect-[3/4] w-full rounded-2xl object-cover" /><div><p className="font-mono text-xs font-semibold text-stone-400">{quickProduct.code}</p><h2 className="mt-1 font-serif text-xl font-semibold text-stone-900">{quickProduct.name}</h2><p className="mt-1 text-sm text-stone-500">{categoryName(data, quickProduct.categoryId)}</p><p className="mt-4 text-xl font-bold text-stone-900">{priceLabel(data, quickProduct.id)} <span className="text-sm font-normal text-stone-400">per variant</span></p><div className="mt-4 grid grid-cols-2 gap-2 text-sm"><p className="rounded-xl bg-stone-50 p-3 text-stone-600">MOQ<br/><b className="text-stone-900">{quickProduct.moq} pcs</b></p><p className="rounded-xl bg-stone-50 p-3 text-stone-600">Variants<br/><b className="text-stone-900">{variantsForProduct(data, quickProduct.id).length}</b></p><p className="rounded-xl bg-stone-50 p-3 text-stone-600">Fabrics<br/><b className="text-stone-900">{[...new Set(variantsForProduct(data, quickProduct.id).map(v => v.attributes.fabric).filter(Boolean))].join(', ')}</b></p></div></div></div>}
       </Modal>
     </div>
   )

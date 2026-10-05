@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import {
-  LayoutDashboard, Shirt, FolderTree, Sliders, AlertTriangle,
+  LayoutDashboard, Shirt, FolderTree, Sliders,
   Users, BookOpen, MessageSquare, BarChart3, Settings, LogOut, X,
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
@@ -13,7 +13,6 @@ const NAV = [
   { to: '/products', label: 'Products', icon: Shirt },
   { to: '/categories', label: 'Categories', icon: FolderTree },
   { to: '/attributes', label: 'Attributes', icon: Sliders },
-  { to: '/inventory/low-stock', label: 'Low Stock', icon: AlertTriangle },
   { to: '/customers', label: 'Customers', icon: Users },
   { to: '/catalogues', label: 'Catalogues', icon: BookOpen },
   { to: '/enquiries', label: 'Enquiries', icon: MessageSquare },

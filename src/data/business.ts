@@ -25,9 +25,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   business: BUSINESS,
   catalogueDefaults: {
     showPrice: true,
-    showStock: false,
     defaultExpiry: '30d',
     defaultMOQ: 12,
   },
-  lowStockThreshold: 10,
 }

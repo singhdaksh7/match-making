@@ -8,7 +8,7 @@ import { useAppData } from '@/context/AppDataContext'
 import { useToast } from '@/context/ToastContext'
 import type { EnquiryStatus } from '@/types'
 import { formatDateTime, formatINR } from '@/utils/format'
-import { primaryImage, waCatalogueLink } from '@/utils/selectors'
+import { primaryImage, variantLabel, waCatalogueLink } from '@/utils/selectors'
 
 const FLOW: EnquiryStatus[] = ['New', 'Contacted', 'Negotiating', 'Converted', 'Closed']
 
@@ -64,15 +64,17 @@ export default function EnquiryDetailPage() {
             <h2 className="mb-3 text-base font-semibold text-stone-900">Selected Products</h2>
             <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
               {enquiry.items.map((item, i) => {
+                // The enquiry's own snapshots win: they stay correct after the product or variant is edited or deleted.
                 const product = data.products.find((p) => p.id === item.productId)
-                const variant = data.variants.find((v) => v.id === item.variantId)
-                if (!product) return null
+                const name = item.productName ?? product?.name ?? 'Product'
+                const attributes = item.attributes ?? data.variants.find((v) => v.id === item.variantId)?.attributes ?? {}
+                const label = variantLabel({ attributes, sku: item.sku ?? '' })
                 return (
-                  <div key={i} className="flex items-center gap-3 border-b border-stone-50 p-3.5 last:border-0">
-                    <ImageWithFallback src={primaryImage(product)} alt={product.name} className="h-14 w-14 shrink-0 rounded-xl object-cover" />
+                  <div key={i} data-testid="enquiry-line" className="flex items-center gap-3 border-b border-stone-50 p-3.5 last:border-0">
+                    <ImageWithFallback src={item.imageUrl ?? (product ? primaryImage(product) : '')} alt={name} className="h-14 w-14 shrink-0 rounded-xl object-cover" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-stone-800">{product.name}</p>
-                      <p className="text-xs text-stone-400">{product.code} {variant && `· ${Object.values(variant.attributes).join(' / ')}`}</p>
+                      <p className="truncate text-sm font-semibold text-stone-800">{name}</p>
+                      <p className="text-xs text-stone-500">{label}{item.sku ? <span className="font-mono text-stone-400"> · {item.sku}</span> : null}</p>
                     </div>
                     <div className="shrink-0 text-right text-sm">
                       <p className="text-stone-500">{item.quantity} × {formatINR(item.priceAtEnquiry)}</p>

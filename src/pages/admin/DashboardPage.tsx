@@ -1,11 +1,11 @@
 import {
-  AlertTriangle, BookOpen, Eye, MessageSquare, Package, Plus, Shirt,
+  BookOpen, Eye, MessageSquare, Package, Plus, Shirt,
   TrendingUp, Users, Boxes,
 } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
+  Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { StatCard } from '@/components/ui/StatCard'
@@ -13,8 +13,8 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { ImageWithFallback } from '@/components/ui/ImageWithFallback'
 import { useAppData } from '@/context/AppDataContext'
 import { useAuth } from '@/context/AuthContext'
-import { formatINR, formatNumber, timeAgo } from '@/utils/format'
-import { customerName, lowStockVariants, primaryImage, totalStockForProduct } from '@/utils/selectors'
+import { formatINR, formatNumber, formatPriceRange, timeAgo } from '@/utils/format'
+import { customerName, primaryImage, variantPriceRange, variantsForProduct } from '@/utils/selectors'
 
 const PALETTE = ['#7a5230', '#b98a54', '#d9b98a', '#e8dcc8', '#8a9a6b', '#6b8a9a', '#9a6b6b', '#8a6b9a', '#5c5a2e']
 
@@ -26,33 +26,28 @@ export default function DashboardPage() {
     const activeProducts = data.products.filter((p) => p.status === 'active')
     const activeCatalogues = data.catalogues.filter((c) => c.status === 'active')
     const newEnquiries = data.enquiries.filter((e) => e.status === 'New')
-    const lowStock = lowStockVariants(data)
     return {
       products: activeProducts.length,
       variants: data.variants.length,
       customers: data.customers.filter((c) => c.status === 'active').length,
       catalogues: activeCatalogues.length,
       enquiries: newEnquiries.length,
-      lowStock: lowStock.length,
     }
   }, [data])
 
-  const inventoryTrend = useMemo(() => {
-    const days = 7
-    const out: { day: string; stock: number; sold: number }[] = []
-    for (let i = days - 1; i >= 0; i--) {
+  // Real data: enquiries received per day over the last 7 days.
+  const enquiryTrend = useMemo(() => {
+    const out: { day: string; enquiries: number }[] = []
+    for (let i = 6; i >= 0; i--) {
       const d = new Date()
       d.setDate(d.getDate() - i)
-      out.push({
-        day: d.toLocaleDateString('en-IN', { weekday: 'short' }),
-        stock: 4200 + Math.round(Math.sin(i) * 300) + i * 40,
-        sold: 60 + Math.round(Math.cos(i) * 20) + i * 3,
-      })
+      const key = d.toDateString()
+      out.push({ day: d.toLocaleDateString('en-IN', { weekday: 'short' }), enquiries: data.enquiries.filter((e) => new Date(e.createdAt).toDateString() === key).length })
     }
     return out
-  }, [])
+  }, [data.enquiries])
 
-  const categoryDistribution = useMemo(() => {
+    const categoryDistribution = useMemo(() => {
     return data.categories
       .map((cat) => ({
         name: cat.name,
@@ -75,8 +70,6 @@ export default function DashboardPage() {
     () => [...data.products].sort((a, b) => b.views - a.views).slice(0, 5),
     [data.products],
   )
-
-  const lowStock = useMemo(() => lowStockVariants(data).slice(0, 5), [data])
 
   const recentCatalogueActivity = useMemo(
     () => [...data.catalogues].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)).slice(0, 5),
@@ -102,13 +95,12 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-5">
         <StatCard label="Total Products" value={formatNumber(stats.products)} icon={Shirt} change={{ value: '+8%', positive: true }} to="/products" />
         <StatCard label="Total Variants" value={formatNumber(stats.variants)} icon={Boxes} change={{ value: '+4%', positive: true }} to="/products" />
         <StatCard label="Total Customers" value={formatNumber(stats.customers)} icon={Users} change={{ value: '+2', positive: true }} to="/customers" />
         <StatCard label="Active Catalogues" value={formatNumber(stats.catalogues)} icon={BookOpen} to="/catalogues" />
         <StatCard label="New Enquiries" value={formatNumber(stats.enquiries)} icon={MessageSquare} change={{ value: 'New', positive: true }} to="/enquiries" />
-        <StatCard label="Low Stock" value={formatNumber(stats.lowStock)} icon={AlertTriangle} tone="warning" to="/inventory/low-stock" />
       </div>
 
       <div className="rounded-2xl border border-[#e8dcc8] bg-[#fffaf3] p-4 sm:p-5">
@@ -120,12 +112,11 @@ export default function DashboardPage() {
           <div className="flex flex-wrap gap-2 text-xs">
             <Link to="/catalogues" className="rounded-xl bg-white px-3 py-2 font-semibold text-stone-700 shadow-xs">3 catalogue views</Link>
             <Link to="/enquiries" className="rounded-xl bg-white px-3 py-2 font-semibold text-stone-700 shadow-xs">2 new enquiries</Link>
-            <Link to="/inventory/low-stock" className="rounded-xl bg-white px-3 py-2 font-semibold text-stone-700 shadow-xs">{stats.lowStock} low stock</Link>
           </div>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           <Link to="/products/new" className="flex h-11 items-center justify-center rounded-xl bg-stone-900 px-3 text-sm font-semibold text-white active:scale-[0.98]">Add Product</Link>
-          <Link to="/inventory/low-stock" className="flex h-11 items-center justify-center rounded-xl border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 active:scale-[0.98]">Add Stock</Link>
+          <Link to="/enquiries" className="flex h-11 items-center justify-center rounded-xl border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 active:scale-[0.98]">View Enquiries</Link>
           <Link to="/customers/new" className="flex h-11 items-center justify-center rounded-xl border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 active:scale-[0.98]">Add Customer</Link>
           <Link to="/catalogues/new" className="flex h-11 items-center justify-center rounded-xl border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 active:scale-[0.98]">Create Catalogue</Link>
         </div>
@@ -135,25 +126,19 @@ export default function DashboardPage() {
         <div className="rounded-2xl border border-stone-200 bg-white p-4 sm:p-5 lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-stone-800">Inventory Overview</h3>
-              <p className="text-xs text-stone-400">Stock levels & pieces sold, last 7 days</p>
+              <h3 className="text-sm font-semibold text-stone-800">Enquiries</h3>
+              <p className="text-xs text-stone-400">Received per day, last 7 days</p>
             </div>
             <TrendingUp size={16} className="text-emerald-500" />
           </div>
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={inventoryTrend}>
-              <defs>
-                <linearGradient id="stockGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#7a5230" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#7a5230" stopOpacity={0} />
-                </linearGradient>
-              </defs>
+            <BarChart data={enquiryTrend}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
               <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#a8a29e' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 12, fill: '#a8a29e' }} axisLine={false} tickLine={false} width={44} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#a8a29e' }} axisLine={false} tickLine={false} width={44} />
               <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e7e5e4', fontSize: 12 }} />
-              <Area type="monotone" dataKey="stock" stroke="#7a5230" fill="url(#stockGrad)" strokeWidth={2} name="Total stock" />
-            </AreaChart>
+              <Bar dataKey="enquiries" fill="#7a5230" radius={[6, 6, 0, 0]} name="Enquiries" />
+            </BarChart>
           </ResponsiveContainer>
         </div>
 
@@ -192,23 +177,6 @@ export default function DashboardPage() {
           ))}
         </Panel>
 
-        <Panel title="Low Stock Alerts" to="/inventory/low-stock">
-          {lowStock.map(({ variant, product }) => (
-            <div key={variant.id} className="flex items-center justify-between gap-3 border-b border-stone-50 px-4 py-3 last:border-0">
-              <div className="flex min-w-0 items-center gap-3">
-                <ImageWithFallback src={primaryImage(product)} alt={product.name} className="h-9 w-9 shrink-0 rounded-lg object-cover" />
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-stone-800">{product.code} · {Object.values(variant.attributes).join(' / ')}</p>
-                  <p className="text-xs text-stone-400">{variant.stock} pieces remaining</p>
-                </div>
-              </div>
-              <Link to={`/products/${product.id}`} className="shrink-0 rounded-lg border border-stone-200 px-2.5 py-1 text-xs font-semibold text-stone-600 hover:bg-stone-50">
-                Update
-              </Link>
-            </div>
-          ))}
-        </Panel>
-
         <Panel title="Recently Added Products" to="/products">
           {recentProducts.map((p) => (
             <Link key={p.id} to={`/products/${p.id}`} className="flex items-center justify-between gap-3 border-b border-stone-50 px-4 py-3 last:border-0 hover:bg-stone-50">
@@ -219,7 +187,7 @@ export default function DashboardPage() {
                   <p className="text-xs text-stone-400">{p.code} · {timeAgo(p.createdAt)}</p>
                 </div>
               </div>
-              <span className="shrink-0 text-xs font-semibold text-stone-500">{formatINR(p.wholesalePrice)}</span>
+              <span className="shrink-0 text-xs font-semibold text-stone-500">{formatPriceRange(variantPriceRange(variantsForProduct(data, p.id)))}</span>
             </Link>
           ))}
         </Panel>
