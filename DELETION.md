@@ -6,7 +6,7 @@ Every destructive admin action is a tenant-scoped, authenticated `DELETE` that i
 
 * **Authoritative server check.** The preview and the `DELETE` use the same `computeImpact()`; the delete re-runs it inside the transaction, so a stale dialog can never delete something that became protected.
 * **Tenant isolation.** Every lookup is scoped by `businessId`; nested paths also verify the parent/child relationship. Another tenant, a wrong parent or an unknown id is a plain `404`.
-* **History is never silently destroyed.** Enquiries, inventory movements, audit log and analytics are not cascaded. A record with such history is blocked with a message (`409 HAS_DEPENDENCIES`, `details.blockers`) and, where it makes sense, the UI offers *Archive* instead.
+* **History is never silently destroyed.** Enquiries, audit log and analytics are not cascaded. (Legacy inventory-movement rows are obsolete since stock management was retired and are removed together with their variant.) A record with such history is blocked with a message (`409 HAS_DEPENDENCIES`, `details.blockers`) and, where it makes sense, the UI offers *Archive* instead.
 * **No raw database errors** reach users; foreign-key failures are translated to a generic `409`.
 * **Audit.** Each delete writes an `AuditLog` row (`<ENTITY>_DELETED`, entity, id, actor, name, removed counts). No secrets or PII beyond the record's display name.
 
@@ -14,8 +14,8 @@ Every destructive admin action is a tenant-scoped, authenticated `DELETE` that i
 
 | Entity | Class | Delete API | UI | Hard delete allowed when | Otherwise | R2 cleanup |
 |---|---|---|---|---|---|---|
-| Product | operational | `DELETE /products/:id` | Product detail → Delete | no inventory movements and not referenced by an enquiry | blocked; **Archive** offered | yes: general images, attribute-value images, variant images |
-| Variant | operational | `DELETE /products/:id/variants/:variantId` | Product detail → variant Delete | no inventory movements / enquiries | blocked | yes: variant images |
+| Product | operational | `DELETE /products/:id` | Product detail → Delete | not referenced by an enquiry (legacy stock history no longer blocks) | blocked; **Archive** offered | yes: general images, attribute-value images, variant images |
+| Variant | operational | `DELETE /products/:id/variants/:variantId` | Product detail → variant Delete | not referenced by an enquiry (legacy stock history no longer blocks) | blocked | yes: variant images |
 | Product image | operational | `DELETE /products/:id/media/:mediaId` | Product edit → image trash | always (next image becomes main) | – | yes: that object |
 | Attribute-value image | operational | `DELETE /products/:id/attribute-values/:valueId/images/:imageId` (existing) | Product edit → photos | always | – | yes |
 | Customer | operational | `DELETE /customers/:id` | Customer detail → Delete | no catalogues and no enquiries | blocked; **Archive** offered | no |
@@ -26,7 +26,7 @@ Every destructive admin action is a tenant-scoped, authenticated `DELETE` that i
 | Attribute value | master | `DELETE /attributes/:id/values/:valueId` | Attributes → ✕ on a value | not used by any variant/product | blocked | no |
 | Collection | operational | `DELETE /collections/:id` | Collections → Delete | always (membership links cascade, products kept) | – | no |
 | Enquiry | **historical** | `DELETE /enquiries/:id` | Enquiry detail → Delete | status is `CLOSED` only (items + status history cascade) | `NEW/CONTACTED/NEGOTIATING` and `CONVERTED` are blocked ("sales records") | no |
-| Inventory movement | **historical** | none | none | never — append-only stock ledger (`ON DELETE RESTRICT`) | – | – |
+| Inventory movement | **historical** | none | none | legacy data, no longer written by the app; removed with its variant (`ON DELETE CASCADE`) | – | – |
 | Audit log, analytics events | **historical** | none | none | never | – | – |
 | Users / sessions | – | out of scope | – | – | – | – |
 

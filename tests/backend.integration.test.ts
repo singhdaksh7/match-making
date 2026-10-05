@@ -55,6 +55,12 @@ async function request(path: string, init: RequestInit = {}, authenticated = fal
   })
 }
 
+/** Persists the exact variants a catalogue exposes for one product (what the admin catalogue builder saves). */
+async function shareVariants(catalogueId: string, productId: string, variantIds: string[]) {
+  const item = await prisma.catalogueItem.create({ data: { catalogueId, productId } })
+  await prisma.catalogueItemVariant.createMany({ data: variantIds.map((variantId) => ({ catalogueItemId: item.id, productId, variantId })) })
+}
+
 async function login(email = 'admin@vastraa.test', password = 'ChangeMe123!') {
   const response = await request('/api/v1/auth/login', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }),
@@ -86,11 +92,11 @@ before(async () => {
   const value = (name: string) => values.find((item) => item.value === name)!.id
   const product = await prisma.product.create({
     data: {
-      businessId: business.id, categoryId: category.id, code: 'K-101', name: 'Floral Rayon Straight Kurti', description: 'Test product', basePrice: 425, moq: 12,
+      businessId: business.id, categoryId: category.id, code: 'K-101', name: 'Floral Rayon Straight Kurti', description: 'Test product', moq: 12,
       attributes: { create: [{ attributeId: fabric.id }, { attributeId: color.id }, { attributeId: size.id }] },
       variants: { create: [
-        { sku: 'K-101-BLK-XL', price: 425, stock: 40, attributeValues: { create: [value('Rayon'), value('Black'), value('XL')].map((attributeValueId) => ({ attributeValueId })) } },
-        { sku: 'K-101-MAR-L', price: 425, stock: 36, attributeValues: { create: [value('Rayon'), value('Maroon'), value('L')].map((attributeValueId) => ({ attributeValueId })) } },
+        { sku: 'K-101-BLK-XL', price: 425, attributeValues: { create: [value('Rayon'), value('Black'), value('XL')].map((attributeValueId) => ({ attributeValueId })) } },
+        { sku: 'K-101-MAR-L', price: 435, attributeValues: { create: [value('Rayon'), value('Maroon'), value('L')].map((attributeValueId) => ({ attributeValueId })) } },
       ] },
     }, include: { variants: true },
   })
@@ -99,9 +105,11 @@ before(async () => {
   maroonLId = product.variants.find((variant) => variant.sku === 'K-101-MAR-L')!.id
   await prisma.productAttributeValue.createMany({ data: [value('Rayon'), value('Black'), value('Maroon'), value('L'), value('XL')].map((attributeValueId) => ({ productId, attributeValueId })) })
   await prisma.customer.create({ data: { businessId: business.id, businessName: 'Raj Fashion House', contactPerson: 'Raj', phone: '+919820011223', type: CustomerType.WHOLESALER } })
-  await prisma.catalogue.create({ data: { businessId: business.id, title: 'Public Test', token: 'public-test', status: RecordStatus.ACTIVE, showPrice: false, showExactStock: false, items: { create: { productId } } } })
-  await prisma.catalogue.create({ data: { businessId: business.id, title: 'Expired', token: 'expired-test', status: RecordStatus.ACTIVE, expiresAt: new Date(Date.now() - 60_000), items: { create: { productId } } } })
-  await prisma.catalogue.create({ data: { businessId: business.id, title: 'Disabled', token: 'disabled-test', status: RecordStatus.DISABLED, items: { create: { productId } } } })
+  const seeded = []
+  seeded.push(await prisma.catalogue.create({ data: { businessId: business.id, title: 'Public Test', token: 'public-test', status: RecordStatus.ACTIVE, showPrice: false } }))
+  seeded.push(await prisma.catalogue.create({ data: { businessId: business.id, title: 'Expired', token: 'expired-test', status: RecordStatus.ACTIVE, expiresAt: new Date(Date.now() - 60_000) } }))
+  seeded.push(await prisma.catalogue.create({ data: { businessId: business.id, title: 'Disabled', token: 'disabled-test', status: RecordStatus.DISABLED } }))
+  for (const catalogue of seeded) await shareVariants(catalogue.id, productId, [blackXlId, maroonLId])
 })
 
 after(async () => {
@@ -118,11 +126,15 @@ test('authenticated auth/me', async () => { const r = await request('/api/v1/aut
 test('tenant isolation', async () => { const prior = cookie; await login('other@vastraa.test'); const r = await request(`/api/v1/products/${productId}`, {}, true); assert.equal(r.status, 404); cookie = prior })
 test('product listing', async () => { const r = await request('/api/v1/products', {}, true); assert.equal(r.status, 200); assert.equal((await r.json()).data[0].code, 'K-101') })
 test('K-101 product detail', async () => { const r = await request(`/api/v1/products/${productId}`, {}, true); assert.equal(r.status, 200); assert.equal((await r.json()).data.variants.length, 2) })
-test('inventory adjustment', async () => { const r = await request('/api/v1/inventory/movements', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ variantId: blackXlId, type: 'ADJUSTMENT', quantity: 2, reason: 'Test adjustment' }) }, true); assert.equal(r.status, 201); assert.equal((await r.json()).data.stock, 42) })
-test('excessive negative stock returns 409', async () => { const r = await request('/api/v1/inventory/movements', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ variantId: blackXlId, type: 'SALE', quantity: 999, reason: 'Test oversell' }) }, true); assert.equal(r.status, 409) })
+test('stock management is retired: the inventory endpoint is gone and variants expose no stock fields', async () => {
+  assert.equal((await request('/api/v1/inventory/movements', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ variantId: blackXlId, type: 'ADJUSTMENT', quantity: 2, reason: 'x' }) }, true)).status, 404)
+  const detail = (await (await request(`/api/v1/products/${productId}`, {}, true)).json()).data
+  for (const key of ['stock', 'reserved', 'lowStockThreshold']) assert.equal(key in detail.variants[0], false, key)
+  assert.equal('basePrice' in detail, false)
+})
 test('public catalogue works without admin session', async () => { const r = await request('/api/v1/public/catalogues/public-test'); assert.equal(r.status, 200) })
 test('hidden price is sanitized', async () => { const body = await (await request('/api/v1/public/catalogues/public-test')).json(); assert.equal('price' in body.data.products[0].variants[0], false) })
-test('hidden exact stock is sanitized', async () => { const body = await (await request('/api/v1/public/catalogues/public-test')).json(); assert.equal('stock' in body.data.products[0].variants[0], false) })
+test('public variants never expose stock or availability', async () => { const body = await (await request('/api/v1/public/catalogues/public-test')).json(); for (const key of ['stock', 'available']) assert.equal(key in body.data.products[0].variants[0], false, key); assert.equal('showExactStock' in body.data.settings, false) })
 test('expired catalogue is rejected', async () => { const r = await request('/api/v1/public/catalogues/expired-test'); assert.equal(r.status, 404) })
 test('disabled catalogue is rejected', async () => { const r = await request('/api/v1/public/catalogues/disabled-test'); assert.equal(r.status, 404) })
 test('multi-variant enquiry includes Rayon / Black / XL and Rayon / Maroon / L', async () => {
@@ -471,9 +483,8 @@ test('POST /media stores through the provider under a staged tenant key and gene
   assert.equal((await create({ objectKey: `business/${biz}/../${other.id}/a.png`, url: 'x', mimeType: 'image/png' })).status, 400)
   assert.equal((await create({ objectKey: `${biz}/legacy-owned.png`, url: 'x', mimeType: 'image/png' })).status, 201) // legacy own prefix still accepted
 })
-test('inventory and auth still work after image changes', async () => {
+test('auth still works after image changes', async () => {
   assert.equal((await request('/api/v1/auth/me', {}, true)).status, 200)
-  assert.equal((await request('/api/v1/inventory/movements', { method: 'POST', headers: json, body: JSON.stringify({ variantId: maroonLId, type: 'ADJUSTMENT', quantity: 1, reason: 'post-image check' }) }, true)).status, 201)
 })
 
 // ---- provider unit tests (no network) ----
@@ -621,9 +632,9 @@ test('fresh tenant: catalogue created via the admin API opens through its genera
     assert.equal(upload.status, 201); const media = (await upload.json()).data
     // 5. product with a variant
     const productRes = await adminJson('/api/v1/products', 'POST', {
-      categoryId: category.id, code: 'FR-1', name: 'Fresh Rayon Kurti', basePrice: 100, moq: 6, attributeIds: [fabric.id, size.id], allowedAttributeValueIds: [rayon, sizeS],
+      categoryId: category.id, code: 'FR-1', name: 'Fresh Rayon Kurti', moq: 6, attributeIds: [fabric.id, size.id], allowedAttributeValueIds: [rayon, sizeS],
       media: [{ objectKey: media.objectKey, mimeType: 'image/png', sizeBytes: media.sizeBytes, primary: true, sortOrder: 0 }],
-      variants: [{ sku: 'FR-1-R-S', price: 100, stock: 10, attributeValueIds: [rayon, sizeS] }],
+      variants: [{ sku: 'FR-1-R-S', price: 100, attributeValueIds: [rayon, sizeS] }],
     })
     assert.equal(productRes.status, 201); const product = (await productRes.json()).data
     // 6. customer
@@ -632,7 +643,7 @@ test('fresh tenant: catalogue created via the admin API opens through its genera
     // 7. catalogue exactly as the admin UI posts it (no token/slug supplied by the client)
     const created = await adminJson('/api/v1/catalogues', 'POST', {
       customerId: customer.id, title: 'Fresh Buyer – October', message: 'Hello', status: 'ACTIVE', expiresAt: new Date(Date.now() + 30 * 86_400_000).toISOString(),
-      showPrice: true, priceAdjustmentPct: 10, items: [{ productId: product.id }],
+      showPrice: true, priceAdjustmentPct: 10, items: [{ productId: product.id, variants: [{ variantId: product.variants[0].id }] }],
     })
     assert.equal(created.status, 201); const catalogue = (await created.json()).data
     // 8. the generated identifier: server-made, long and random, and the same one the admin list returns (the admin UI builds /catalogue/<token> from it)
@@ -647,7 +658,7 @@ test('fresh tenant: catalogue created via the admin API opens through its genera
     // 10. correct catalogue + products
     assert.equal(body.token, catalogue.token); assert.equal(body.title, 'Fresh Buyer – October'); assert.equal(body.products.length, 1); assert.equal(body.products[0].code, 'FR-1')
     // 11. pricing: +10% catalogue adjustment on a 100 variant
-    assert.ok(Math.abs(body.products[0].variants[0].price - 110) < 0.005, `expected ~110, got ${body.products[0].variants[0].price}`) // server does not round (110.00000000000001); tolerance keeps this test about the link, not float formatting
+    assert.equal(body.products[0].variants[0].price, 110) // exact decimal arithmetic: never 110.00000000000001
     // 12. media serialized through the storage provider URL, with no storage internals leaked
     assert.equal(body.products[0].media[0].url, fake.getPublicUrl(media.objectKey)); assert.equal('objectKey' in body.products[0].media[0], false)
     assert.deepEqual(body.products[0].attributes.map((a: { name: string }) => a.name), ['Fabric', 'Size'])
@@ -658,8 +669,8 @@ test('fresh tenant: catalogue created via the admin API opens through its genera
       assert.equal(bad.status, 404); assert.equal((await bad.json()).error.code, 'CATALOGUE_UNAVAILABLE')
     }
 
-    // customer-specific price on a catalogue item overrides the percentage adjustment
-    const custom = (await (await adminJson('/api/v1/catalogues', 'POST', { customerId: customer.id, title: 'Fresh custom price', status: 'ACTIVE', showPrice: true, items: [{ productId: product.id, customPrice: 90 }] })).json()).data
+    // a per-variant custom price in the catalogue overrides the percentage adjustment
+    const custom = (await (await adminJson('/api/v1/catalogues', 'POST', { customerId: customer.id, title: 'Fresh custom price', status: 'ACTIVE', showPrice: true, items: [{ productId: product.id, variants: [{ variantId: product.variants[0].id, customPrice: 90 }] }] })).json()).data
     assert.equal((await (await request(`/api/v1/public/catalogues/${custom.token}`)).json()).data.products[0].variants[0].price, 90)
 
     // 13. disabled -> unavailable
@@ -680,7 +691,7 @@ test('fresh tenant: catalogue created via the admin API opens through its genera
     assert.equal((await adminJson(`/api/v1/catalogues/${catalogue.id}/disable`, 'POST')).status, 404)
     assert.equal((await adminJson(`/api/v1/catalogues/${catalogue.id}`, 'DELETE')).status, 404)
     // ...and cannot build a catalogue around this tenant's product or customer
-    const steal = await adminJson('/api/v1/catalogues', 'POST', { title: 'steal', status: 'ACTIVE', customerId: customer.id, items: [{ productId: product.id }] })
+    const steal = await adminJson('/api/v1/catalogues', 'POST', { title: 'steal', status: 'ACTIVE', customerId: customer.id, items: [{ productId: product.id, variants: [{ variantId: product.variants[0].id }] }] })
     assert.ok(steal.status >= 400 && steal.status < 500, `cross-tenant catalogue creation must be rejected, got ${steal.status}`)
     assert.equal((await request(`/api/v1/public/catalogues/${catalogue.token}`)).status, 200)
     assert.equal((await prisma.catalogue.findUnique({ where: { id: catalogue.id } }))!.title, 'Fresh Buyer – October')

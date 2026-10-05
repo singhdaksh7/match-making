@@ -58,7 +58,7 @@ async function main() {
   const product = await db.product.upsert({
     where: { businessId_code: { businessId: business.id, code: 'K-101' } },
     update: { name: 'Floral Rayon Straight Kurti', categoryId: category.id, status: RecordStatus.ACTIVE },
-    create: { businessId: business.id, categoryId: category.id, code: 'K-101', name: 'Floral Rayon Straight Kurti', description: 'Demo bestseller', basePrice: 425, moq: 12, status: RecordStatus.ACTIVE },
+    create: { businessId: business.id, categoryId: category.id, code: 'K-101', name: 'Floral Rayon Straight Kurti', description: 'Demo bestseller', moq: 12, status: RecordStatus.ACTIVE },
   })
 
   await db.productAttribute.deleteMany({ where: { productId: product.id } })
@@ -82,8 +82,8 @@ async function main() {
     await db.productAttributeValueImage.create({ data: { productId: product.id, attributeValueId, objectKey: key, mimeType: 'image/png', sizeBytes: body.length, altText: `${name} placeholder`, sortOrder: 0 } })
   }
 
-  for (const [sku, colour, fit, stock] of [['K-101-BLK-XL', 'Black', 'XL', 40], ['K-101-MAR-L', 'Maroon', 'L', 36]] as const) {
-    const variant = await db.productVariant.upsert({ where: { productId_sku: { productId: product.id, sku } }, update: { stock }, create: { productId: product.id, sku, price: 425, stock } })
+  for (const [sku, colour, fit, price] of [['K-101-BLK-XL', 'Black', 'XL', 425], ['K-101-MAR-L', 'Maroon', 'L', 435]] as const) {
+    const variant = await db.productVariant.upsert({ where: { productId_sku: { productId: product.id, sku } }, update: { price }, create: { productId: product.id, sku, price } })
     await db.variantAttributeValue.deleteMany({ where: { variantId: variant.id } })
     for (const label of ['Rayon', colour, fit]) {
       await db.variantAttributeValue.create({ data: { variantId: variant.id, attributeValueId: value(label).id } })

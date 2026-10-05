@@ -72,12 +72,12 @@ async function mkProduct(bid = A, opts: { categoryId?: string; sharedKey?: strin
   const code = `P-${uid()}`, key = (n: string) => { const k = `business/${bid}/products/${code}/${n}.png`; fake.objects.add(k); return k }
   const gen1 = opts.sharedKey ?? key('g1'), gen2 = key('g2'), av1 = key('a1'), av2 = key('a2'), vm = key('vm')
   const product = await prisma.product.create({ data: {
-    businessId: bid, categoryId: category.id, code, name: `Product ${code}`, basePrice: 100, moq: 1,
+    businessId: bid, categoryId: category.id, code, name: `Product ${code}`, moq: 1,
     attributes: { create: [{ attributeId: attr.id }] },
     media: { create: [{ objectKey: gen1, url: gen1, mimeType: 'image/png', primary: true, sortOrder: 0 }, { objectKey: gen2, url: gen2, mimeType: 'image/png', primary: false, sortOrder: 1 }] },
     variants: { create: [
-      { sku: `${code}-1`, price: 100, stock: 5, attributeValues: { create: [{ attributeValueId: attr.values[0].id }] }, media: { create: [{ objectKey: vm, url: vm, mimeType: 'image/png' }] } },
-      { sku: `${code}-2`, price: 100, stock: 5, attributeValues: { create: [{ attributeValueId: attr.values[1].id }] } },
+      { sku: `${code}-1`, price: 100, attributeValues: { create: [{ attributeValueId: attr.values[0].id }] }, media: { create: [{ objectKey: vm, url: vm, mimeType: 'image/png' }] } },
+      { sku: `${code}-2`, price: 100, attributeValues: { create: [{ attributeValueId: attr.values[1].id }] } },
     ] },
   }, include: { variants: true, media: true } })
   await prisma.productAttributeValue.createMany({ data: attr.values.map((v) => ({ productId: product.id, attributeValueId: v.id })) })
@@ -149,16 +149,19 @@ test('product: deletes rows + variants + images, removes its R2 objects, keeps s
   assert.equal((await del(`/api/v1/products/${p.product.id}`)).status, 404, 'second delete is a clean 404')
 })
 
-test('product with inventory history is protected (409 + archive hint); nothing is deleted, objects stay', async () => {
+test('legacy stock history no longer blocks deleting a product (stock management is retired); enquiry history still does', async () => {
   const p = await mkProduct(), u = await owner(A)
   await prisma.inventoryMovement.create({ data: { variantId: p.variants[0].id, type: MovementType.PRODUCTION, quantity: 5, reason: 'initial', createdById: u.id } })
-  const res = await del(`/api/v1/products/${p.product.id}`); assert.equal(res.status, 409)
-  const err = (await json(res)).error
-  assert.equal(err.code, 'HAS_DEPENDENCIES'); assert.match(err.message, /inventory movement/); assert.match(err.message, /Archive/); assert.ok(err.details.blockers.length > 0)
+  const preview = (await json(await request(`/api/v1/deletion-impact/products/${p.product.id}`))).data
+  assert.equal(preview.canDelete, true); assert.ok(preview.removes.some((r: { label: string }) => /legacy stock/.test(r.label)))
+  assert.equal((await del(`/api/v1/products/${p.product.id}`)).status, 200)
+  assert.equal(await prisma.product.count({ where: { id: p.product.id } }), 0)
+  assert.equal(await prisma.inventoryMovement.count({ where: { variantId: p.variants[0].id } }), 0)
+  const q = await mkProduct(); await mkEnquiry(A, { productId: q.product.id, variantId: q.variants[0].id })
+  const blocked = await del(`/api/v1/products/${q.product.id}`); assert.equal(blocked.status, 409)
+  const err = (await json(blocked)).error; assert.equal(err.code, 'HAS_DEPENDENCIES'); assert.match(err.message, /enquir/); assert.match(err.message, /Archive/)
   assert.ok(!/prisma|P20\d\d|constraint/i.test(err.message), 'no raw database error')
-  assert.ok(await prisma.product.findUnique({ where: { id: p.product.id } })); assert.ok(p.keys.every((k) => fake.objects.has(k)))
-  // archiving is the supported alternative
-  assert.equal((await request(`/api/v1/products/${p.product.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'ARCHIVED' }) })).status, 204)
+  assert.ok(await prisma.product.findUnique({ where: { id: q.product.id } })); assert.ok(q.keys.every((k) => fake.objects.has(k)))
 })
 
 test('product referenced by customer enquiries is protected and the enquiry history is untouched', async () => {
@@ -201,10 +204,10 @@ test('general product image: deletes only that DB row + its R2 object, promotes 
 })
 
 // ---------- variants ----------
-test('variant: deletes with its image, protected when it has stock history or enquiries', async () => {
+test('variant: deletes with its image (legacy stock history does not block), protected when it has enquiries', async () => {
   const p = await mkProduct(), u = await owner(A), [v1, v2] = p.variants
   await prisma.inventoryMovement.create({ data: { variantId: v1.id, type: MovementType.ADJUSTMENT, quantity: 1, reason: 'x', createdById: u.id } })
-  const blocked = await del(`/api/v1/products/${p.product.id}/variants/${v1.id}`); assert.equal(blocked.status, 409); assert.match((await json(blocked)).error.message, /inventory movement/)
+  assert.equal((await del(`/api/v1/products/${p.product.id}/variants/${v1.id}`)).status, 200); assert.equal(await prisma.inventoryMovement.count({ where: { variantId: v1.id } }), 0)
   await mkEnquiry(A, { variantId: v2.id }); assert.equal((await del(`/api/v1/products/${p.product.id}/variants/${v2.id}`)).status, 409)
   const p2 = await mkProduct(), vm = p2.keys[4]
   assert.equal((await del(`/api/v1/products/${p2.product.id}/variants/${p2.variants[0].id}`)).status, 200)
@@ -296,7 +299,7 @@ test('historical data is never destroyed by deletes: audit log entries and inven
 // ---------- attach an uploaded image to an existing product (edit flow) ----------
 test('attach image to an existing product: only own-tenant keys are accepted; first image becomes main; it can then be deleted', async () => {
   await loginAs('a-owner@t.test')
-  const category = await mkCategory(), product = await prisma.product.create({ data: { businessId: A, categoryId: category.id, code: `AT-${uid()}`, name: 'Attach target', basePrice: 10, moq: 1 } })
+  const category = await mkCategory(), product = await prisma.product.create({ data: { businessId: A, categoryId: category.id, code: `AT-${uid()}`, name: 'Attach target', moq: 1 } })
   const ownKey = `business/${A}/products/_staged/general/${uid()}.png`, foreignKey = `business/${B}/products/_staged/general/${uid()}.png`
   fake.objects.add(ownKey)
   const attach = (id: string, key: string) => request(`/api/v1/products/${id}/media`, { method: 'POST', body: JSON.stringify({ objectKey: key, mimeType: 'image/png', sizeBytes: 5 }) })

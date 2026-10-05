@@ -6,12 +6,19 @@ import { publicUrl } from './storage/index.js'
 type ImageRow = { id: string; attributeValueId: string; objectKey: string; mimeType: string; sizeBytes: number; altText: string | null; sortOrder: number; createdAt: Date }
 /** Admin image shape: derived URL, never the storage key. */
 export const serializeAttributeImage = (row: ImageRow) => ({ id: row.id, attributeValueId: row.attributeValueId, url: publicUrl(row.objectKey), mimeType: row.mimeType, sizeBytes: row.sizeBytes, altText: row.altText, sortOrder: row.sortOrder, createdAt: row.createdAt })
+/** Legacy stock columns and the retired product-level price are never exposed to clients. */
+export function serializeVariant<T extends { stock?: unknown; reserved?: unknown; lowStockThreshold?: unknown }>(variant: T) {
+  const { stock: _stock, reserved: _reserved, lowStockThreshold: _threshold, ...rest } = variant
+  return rest
+}
 /** Applies derived public URLs to media and attribute-value images of a product loaded with productInclude. */
-export function serializeProduct<T extends { media: { objectKey: string; url: string }[]; allowedValues: { images: ImageRow[] }[] }>(product: T) {
+export function serializeProduct<T extends { media: { objectKey: string; url: string }[]; allowedValues: { images: ImageRow[] }[]; variants: { stock?: unknown; reserved?: unknown; lowStockThreshold?: unknown }[]; basePrice?: unknown }>(product: T) {
+  const { basePrice: _legacyPrice, ...rest } = product
   return {
-    ...product,
+    ...rest,
     media: product.media.map((m) => ({ ...m, url: m.objectKey ? publicUrl(m.objectKey) : m.url })),
     allowedValues: product.allowedValues.map((row) => ({ ...row, images: row.images.map(serializeAttributeImage) })),
+    variants: product.variants.map(serializeVariant),
   }
 }
 

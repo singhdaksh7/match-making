@@ -4,7 +4,7 @@
 //  * One server-side function per entity computes a deletion IMPACT: what blocks the delete (`blockers`), what the delete
 //    removes along with the record (`removes`) and what is deliberately kept (`keeps`). The admin UI reads it before it
 //    shows the confirmation; the DELETE endpoint recomputes it inside the transaction, so the two can never disagree.
-//  * Historical / transactional data (enquiries, inventory movements, audit log, analytics) is never silently cascaded.
+//  * Historical / transactional data (enquiries, audit log, analytics) is never silently cascaded. Legacy inventory-movement rows are obsolete (stock management was retired) and go away with their variant.
 //    A record with history is blocked with an explanation; archiving is offered instead where the entity supports it.
 //  * Storage (R2) cannot join a PostgreSQL transaction, so the order is: (1) collect the object keys from the database
 //    rows being deleted, (2) delete the rows in ONE transaction (+ audit entry), (3) only after commit delete the objects,
@@ -33,7 +33,7 @@ const part = (n: number, one: string, many = `${one}s`): Blocker | undefined => 
 const compact = (items: (Blocker | undefined)[]) => items.filter((x): x is Blocker => Boolean(x))
 const describe = (items: Blocker[]) => items.map((b) => (b.count === undefined ? b.label : `${b.count} ${b.label}`)).join(', ')
 
-const ARCHIVE_PRODUCT = 'Archive this product instead: it is hidden from new catalogues while its enquiry and stock history is kept.'
+const ARCHIVE_PRODUCT = 'Archive this product instead: it is hidden from new catalogues while its enquiry history is kept.'
 const ARCHIVE_CUSTOMER = 'Archive this customer instead to keep their history.'
 
 /** Computes the impact of deleting one entity of the caller's tenant. 404 for anything outside it. */
@@ -46,7 +46,7 @@ export async function computeImpact(db: Db, businessId: string, entity: Entity, 
       const product = await db.product.findFirst({ where: { id, businessId }, select: { id: true, name: true } })
       if (!product) throw notFound('Product')
       const variantIds = (await db.productVariant.findMany({ where: { productId: id }, select: { id: true } })).map((v) => v.id)
-      const [media, attrImages, variantMedia, movements, enquiryRows, catalogueRows, collections] = [
+      const [media, attrImages, variantMedia, legacyStock, enquiryRows, catalogueRows, collections] = [
         await db.productMedia.findMany({ where: { productId: id }, select: { objectKey: true } }),
         await db.productAttributeValueImage.findMany({ where: { productId: id }, select: { objectKey: true } }),
         await db.variantMedia.findMany({ where: { variantId: { in: variantIds } }, select: { objectKey: true } }),
@@ -57,22 +57,22 @@ export async function computeImpact(db: Db, businessId: string, entity: Entity, 
       ]
       const keys = [...media, ...attrImages, ...variantMedia].map((r) => r.objectKey)
       return base(product.name,
-        compact([part(movements, 'inventory movement'), part(enquiryRows.length, 'customer enquiry', 'customer enquiries')]),
-        compact([part(variantIds.length, 'variant'), part(keys.length, 'image'), part(catalogueRows.length, 'catalogue entry', 'catalogue entries'), part(collections, 'collection entry', 'collection entries')]),
+        compact([part(enquiryRows.length, 'customer enquiry', 'customer enquiries')]),
+        compact([part(variantIds.length, 'variant'), part(legacyStock, 'legacy stock record'), part(keys.length, 'image'), part(catalogueRows.length, 'catalogue entry', 'catalogue entries'), part(collections, 'collection entry', 'collection entries')]),
         ['Customers, categories, attributes and catalogues themselves are not deleted'], keys, ARCHIVE_PRODUCT)
     }
     case 'variant': {
       const variant = await db.productVariant.findFirst({ where: { id, product: { businessId } }, select: { id: true, sku: true } })
       if (!variant) throw notFound('Variant')
-      const movements = await db.inventoryMovement.count({ where: { variantId: id } })
+      const legacyStock = await db.inventoryMovement.count({ where: { variantId: id } })
       const enquiries = await db.enquiryItem.findMany({ where: { variantId: id }, select: { enquiryId: true }, distinct: ['enquiryId'] })
       const media = await db.variantMedia.findMany({ where: { variantId: id }, select: { objectKey: true } })
-      const entries = await db.catalogueItem.count({ where: { variantId: id } })
+      const entries = await db.catalogueItemVariant.count({ where: { variantId: id } })
       return base(variant.sku,
-        compact([part(movements, 'inventory movement'), part(enquiries.length, 'customer enquiry', 'customer enquiries')]),
-        compact([part(media.length, 'variant image'), part(entries, 'catalogue entry', 'catalogue entries')]),
+        compact([part(enquiries.length, 'customer enquiry', 'customer enquiries')]),
+        compact([part(media.length, 'variant image'), part(legacyStock, 'legacy stock record'), part(entries, 'catalogue selection')]),
         ['The product and its other variants are kept'], media.map((m) => m.objectKey),
-        'Set the variant to INACTIVE instead to keep its stock and enquiry history.')
+        'Set the variant to INACTIVE instead to keep its enquiry history.')
     }
     case 'product-media': {
       const media = await db.productMedia.findFirst({ where: { id, product: { businessId } }, select: { id: true, objectKey: true, primary: true } })

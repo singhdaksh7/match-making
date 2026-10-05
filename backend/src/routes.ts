@@ -4,14 +4,15 @@ import { z } from 'zod'
 import { prisma } from './db.js'
 import { allow, requireAuth } from './auth.js'
 import { HttpError, asyncRoute, pagination } from './http.js'
-import { moveInventory } from './inventory.js'
+import { priceInput } from './pricing.js'
+import { registerCatalogueRoutes } from './catalogues.js'
 import crypto from 'node:crypto'
 import multer from 'multer'
 import { config } from './config.js'
 import {
   assertAllowedValuesNotInUse, assertUniqueVariantCombination,
   assertVariantAttributeValues, isUniqueConstraint, loadImageTarget, productInclude, resolveProductAttributeSelection,
-  serializeAttributeImage, serializeProduct,
+  serializeAttributeImage, serializeProduct, serializeVariant,
 } from './productAttributes.js'
 import { registerDeletionRoutes } from './deletion.js'
 import { assertImageFile, attributeImageKey, allowedMime, deleteImageFiles, generalMediaKey, isOwnedKey, publicUrl, saveImage } from './storage/index.js'
@@ -29,8 +30,9 @@ adminRouter.patch('/attributes/:id',allow('OWNER','ADMIN'),asyncRoute(async(req,
 adminRouter.post('/attributes/:id/values',allow('OWNER','ADMIN'),asyncRoute(async(req,res)=>{const d=z.object({value:z.string().min(1),hex:z.string().optional()}).parse(req.body);const attribute=await prisma.attribute.findFirst({where:{id:String(req.params.id),businessId:req.principal!.businessId}});if(!attribute)throw new HttpError(404,'Attribute not found','NOT_FOUND');try{res.status(201).json({data:await prisma.attributeValue.create({data:{attributeId:attribute.id,...d}})})}catch(error){if(isUniqueConstraint(error))throw new HttpError(409,'That value already exists on this attribute','CONFLICT');throw error}}))
 adminRouter.get('/customers',list(prisma.customer,'businessName')); adminRouter.post('/customers',allow('OWNER','ADMIN','STAFF','SALES'),asyncRoute(async(req,res)=>{const d=z.object({businessName:z.string(),contactPerson:z.string(),phone:z.string(),whatsapp:z.string().optional(),email:z.string().email().optional(),city:z.string().optional(),state:z.string().optional(),type:z.enum(['WHOLESALER','RETAILER','DISTRIBUTOR','RESELLER']),gstNumber:z.string().optional(),notes:z.string().optional(),status:status.optional()}).parse(req.body);res.status(201).json({data:await prisma.customer.create({data:{...d,businessId:req.principal!.businessId}})})}))
 adminRouter.get('/customers/:id',asyncRoute(async(req,res)=>{const x=await prisma.customer.findFirst({where:{id:String(req.params.id),businessId:req.principal!.businessId}});if(!x)throw new HttpError(404,'Customer not found','NOT_FOUND');res.json({data:x})})); adminRouter.patch('/customers/:id',allow('OWNER','ADMIN','STAFF','SALES'),asyncRoute(async(req,res)=>{const d=z.object({businessName:z.string().optional(),contactPerson:z.string().optional(),phone:z.string().optional(),status:status.optional(),notes:z.string().optional()}).parse(req.body);const x=await prisma.customer.updateMany({where:{id:String(req.params.id),businessId:req.principal!.businessId},data:d});if(!x.count)throw new HttpError(404,'Customer not found','NOT_FOUND');res.status(204).end()}))
-const variantInput=z.object({sku:z.string().min(1),price:z.number().nonnegative(),stock:z.number().int().nonnegative().optional(),attributeValueIds:z.array(z.string()).optional(),attributeAssignments:z.array(z.object({attributeId:z.string(),attributeValueId:z.string()})).optional()})
-const productInput=z.object({categoryId:z.string(),code:z.string().min(1),name:z.string().min(1),description:z.string().default(''),basePrice:z.number().nonnegative(),moq:z.number().int().positive().default(1),status:status.optional(),attributeIds:z.array(z.string()).optional(),allowedAttributeValueIds:z.array(z.string()).optional(),media:z.array(z.object({objectKey:z.string(),url:z.string().optional(),mimeType:z.string(),sizeBytes:z.number().int().nonnegative().optional(),primary:z.boolean().optional(),sortOrder:z.number().int().optional()})).default([]),variants:z.array(variantInput).optional()})
+// Variant price is the ONLY selling price. There is no stock field: availability is unlimited by business rule.
+const variantInput=z.object({sku:z.string().min(1),price:priceInput,status:z.enum(['ACTIVE','INACTIVE']).optional(),attributeValueIds:z.array(z.string()).optional(),attributeAssignments:z.array(z.object({attributeId:z.string(),attributeValueId:z.string()})).optional()})
+const productInput=z.object({categoryId:z.string(),code:z.string().min(1),name:z.string().min(1),description:z.string().default(''),moq:z.number().int().positive().default(1),status:status.optional(),attributeIds:z.array(z.string()).optional(),allowedAttributeValueIds:z.array(z.string()).optional(),media:z.array(z.object({objectKey:z.string(),url:z.string().optional(),mimeType:z.string(),sizeBytes:z.number().int().nonnegative().optional(),primary:z.boolean().optional(),sortOrder:z.number().int().optional()})).default([]),variants:z.array(variantInput).optional()})
 adminRouter.get('/products',asyncRoute(async(req,res)=>{const {page,limit,skip}=pagination(req),q=String(req.query.q??'');const where={businessId:req.principal!.businessId,...(q?{OR:[{name:{contains:q,mode:'insensitive' as const}},{code:{contains:q,mode:'insensitive' as const}}]}:{})};const [data,total]=await prisma.$transaction([prisma.product.findMany({where,skip,take:limit,include:productInclude,orderBy:{createdAt:'desc'}}),prisma.product.count({where})]);res.json({data:data.map(serializeProduct),meta:{page,limit,total}})}))
 adminRouter.post('/products',allow('OWNER','ADMIN','STAFF'),asyncRoute(async(req,res)=>{
   const d=productInput.parse(req.body)
@@ -50,11 +52,11 @@ adminRouter.post('/products',allow('OWNER','ADMIN','STAFF'),asyncRoute(async(req
   }
   try{
     const product=await prisma.product.create({data:{
-      businessId:req.principal!.businessId,categoryId:d.categoryId,code:d.code,name:d.name,description:d.description,basePrice:d.basePrice,moq:d.moq,status:d.status,
+      businessId:req.principal!.businessId,categoryId:d.categoryId,code:d.code,name:d.name,description:d.description,moq:d.moq,status:d.status,
       media:{create:d.media.map(m=>({objectKey:m.objectKey,url:publicUrl(m.objectKey),mimeType:m.mimeType,sizeBytes:m.sizeBytes,primary:m.primary,sortOrder:m.sortOrder}))},
       attributes:{create:selection.attributeIds.map(attributeId=>({attributeId}))},
       allowedValues:{create:allowedAttributeValueIds.map(attributeValueId=>({attributeValueId}))},
-      variants:{create:variants.map(v=>({sku:v.sku,price:v.price,stock:v.stock??0,attributeValues:{create:(v.attributeValueIds??[]).map(attributeValueId=>({attributeValueId}))}}))},
+      variants:{create:variants.map(v=>({sku:v.sku,price:v.price,status:v.status,attributeValues:{create:(v.attributeValueIds??[]).map(attributeValueId=>({attributeValueId}))}}))},
     },include:productInclude})
     res.status(201).json({data:serializeProduct(product)})
   }catch(error){
@@ -83,7 +85,7 @@ adminRouter.patch('/products/:id',allow('OWNER','ADMIN','STAFF'),asyncRoute(asyn
       if(selection.attributeIds.length) await tx.productAttribute.createMany({data:selection.attributeIds.map(attributeId=>({productId:product.id,attributeId}))})
       if(removed.length) await tx.productAttributeValue.deleteMany({where:{productId:product.id,attributeValueId:{in:removed}}}) // images go by composite-FK cascade
       if(added.length) await tx.productAttributeValue.createMany({data:added.map(attributeValueId=>({productId:product.id,attributeValueId}))})
-      await tx.product.update({where:{id:product.id},data:{...(d.name!==undefined?{name:d.name}:{}),...(d.description!==undefined?{description:d.description}:{}),...(d.basePrice!==undefined?{basePrice:d.basePrice}:{}),...(d.moq!==undefined?{moq:d.moq}:{}),...(d.status!==undefined?{status:d.status}:{}),...(d.categoryId!==undefined?{categoryId:d.categoryId}:{}),...(d.code!==undefined?{code:d.code}:{})}})
+      await tx.product.update({where:{id:product.id},data:{...(d.name!==undefined?{name:d.name}:{}),...(d.description!==undefined?{description:d.description}:{}),...(d.moq!==undefined?{moq:d.moq}:{}),...(d.status!==undefined?{status:d.status}:{}),...(d.categoryId!==undefined?{categoryId:d.categoryId}:{}),...(d.code!==undefined?{code:d.code}:{})}})
       return orphaned
     })
     await deleteImageFiles(removedKeys) // after commit, best-effort
@@ -102,8 +104,8 @@ adminRouter.post('/products/:id/variants',allow('OWNER','ADMIN','STAFF'),asyncRo
   await assertVariantAttributeValues({businessId:req.principal!.businessId,categoryId:product.categoryId,allowedAttributeValueIds:product.allowedValues.map(row=>row.attributeValueId),attributeValueIds:d.attributeValueIds??[],assignments:d.attributeAssignments})
   await assertUniqueVariantCombination(product.id,d.attributeValueIds??[])
   try{
-    const variant=await prisma.productVariant.create({data:{productId:product.id,sku:d.sku,price:d.price,stock:d.stock??0,attributeValues:{create:(d.attributeValueIds??[]).map(attributeValueId=>({attributeValueId}))}},include:{attributeValues:{include:{attributeValue:{include:{attribute:true}}}}}})
-    res.status(201).json({data:variant})
+    const variant=await prisma.productVariant.create({data:{productId:product.id,sku:d.sku,price:d.price,status:d.status,attributeValues:{create:(d.attributeValueIds??[]).map(attributeValueId=>({attributeValueId}))}},include:{attributeValues:{include:{attributeValue:{include:{attribute:true}}}}}})
+    res.status(201).json({data:serializeVariant(variant)})
   }catch(error){
     if(isUniqueConstraint(error)) throw new HttpError(409,'A variant with that SKU already exists','CONFLICT')
     throw error
@@ -125,11 +127,10 @@ adminRouter.patch('/products/:id/variants/:variantId',allow('OWNER','ADMIN','STA
       await tx.variantAttributeValue.deleteMany({where:{variantId:variant.id}})
       await tx.variantAttributeValue.createMany({data:d.attributeValueIds.map(attributeValueId=>({variantId:variant.id,attributeValueId}))})
     }
-    return tx.productVariant.update({where:{id:variant.id},data:{...(d.sku!==undefined?{sku:d.sku}:{}),...(d.price!==undefined?{price:d.price}:{}),...(d.stock!==undefined?{stock:d.stock}:{})},include:{attributeValues:{include:{attributeValue:{include:{attribute:true}}}}}})
+    return tx.productVariant.update({where:{id:variant.id},data:{...(d.sku!==undefined?{sku:d.sku}:{}),...(d.price!==undefined?{price:d.price}:{}),...(d.status!==undefined?{status:d.status}:{})},include:{attributeValues:{include:{attributeValue:{include:{attribute:true}}}}}})
   })
-  res.json({data:updated})
+  res.json({data:serializeVariant(updated)})
 }))
-adminRouter.post('/inventory/movements',allow('OWNER','ADMIN','STAFF','INVENTORY_MANAGER'),asyncRoute(async(req,res)=>{const d=z.object({variantId:z.string(),type:z.enum(['PRODUCTION','SALE','ADJUSTMENT','DAMAGE','RETURN','RESERVATION','RELEASE']),quantity:z.number().int().positive(),reason:z.string().min(2),reference:z.string().optional()}).parse(req.body);res.status(201).json({data:await moveInventory(req.principal!,d)})}))
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:config.uploadMaxBytes,files:1},fileFilter:(_req,file,cb)=>cb(null,allowedMime.has(file.mimetype))})
 adminRouter.post('/media',allow('OWNER','ADMIN','STAFF'),upload.single('file'),asyncRoute(async(req,res)=>{
   if(!req.file)throw new HttpError(400,'A supported image file is required','VALIDATION_ERROR')
@@ -211,24 +212,8 @@ adminRouter.patch(`${imageBase}/:imageId`,allow('OWNER','ADMIN','STAFF'),authori
 }))
 adminRouter.get('/collections',asyncRoute(async(req,res)=>{const {page,limit,skip}=pagination(req),q=String(req.query.q??'');const where:any={businessId:req.principal!.businessId,...(q?{name:{contains:q,mode:'insensitive'}}:{})};const [data,total]=await prisma.$transaction([prisma.collection.findMany({where,skip,take:limit,include:{products:true},orderBy:{createdAt:'desc'}}),prisma.collection.count({where})]);res.json({data,meta:{page,limit,total}})})); adminRouter.post('/collections',allow('OWNER','ADMIN','STAFF'),asyncRoute(async(req,res)=>{const d=z.object({name:z.string(),description:z.string().default(''),productIds:z.array(z.string()).default([]),status:status.optional()}).parse(req.body);res.status(201).json({data:await prisma.collection.create({data:{businessId:req.principal!.businessId,name:d.name,description:d.description,status:d.status,products:{create:d.productIds.map(productId=>({productId}))}},include:{products:true}})})}))
 adminRouter.patch('/collections/:id',allow('OWNER','ADMIN','STAFF'),asyncRoute(async(req,res)=>{const d=z.object({name:z.string().optional(),description:z.string().optional(),status:status.optional()}).parse(req.body);const x=await prisma.collection.updateMany({where:{id:String(req.params.id),businessId:req.principal!.businessId},data:d});if(!x.count)throw new HttpError(404,'Collection not found','NOT_FOUND');res.status(204).end()}))
-const catalogueInput=z.object({customerId:z.string().optional(),title:z.string(),message:z.string().optional(),expiresAt:z.coerce.date().optional(),status:status.optional(),showPrice:z.boolean().default(true),showExactStock:z.boolean().default(false),showAvailability:z.boolean().default(true),showMOQ:z.boolean().default(true),allowSelection:z.boolean().default(true),allowEnquiry:z.boolean().default(true),allowImageDownload:z.boolean().default(false),priceAdjustmentPct:z.number().min(-100).max(100).default(0),pin:z.string().min(4).optional(),items:z.array(z.object({productId:z.string(),variantId:z.string().optional(),customPrice:z.number().nonnegative().optional()})).min(1)})
-// A catalogue may only reference the caller's own customer, products and variants (public links expose whatever the items point at).
-const assertCatalogueRefsOwned=async(businessId:string,d:{customerId?:string;items?:{productId:string;variantId?:string}[]})=>{
-  if(d.customerId&&!(await prisma.customer.findFirst({where:{id:d.customerId,businessId},select:{id:true}}))) throw new HttpError(400,'Customer not found','VALIDATION_ERROR')
-  const items=d.items??[]
-  if(!items.length) return
-  const productIds=[...new Set(items.map(item=>item.productId))]
-  if((await prisma.product.count({where:{id:{in:productIds},businessId}}))!==productIds.length) throw new HttpError(400,'One or more products are invalid','VALIDATION_ERROR')
-  const variantIds=items.flatMap(item=>item.variantId?[item.variantId]:[])
-  if(variantIds.length){
-    const owners=new Map((await prisma.productVariant.findMany({where:{id:{in:variantIds},product:{businessId}},select:{id:true,productId:true}})).map(v=>[v.id,v.productId]))
-    for(const item of items) if(item.variantId&&owners.get(item.variantId)!==item.productId) throw new HttpError(400,'One or more variants are invalid','VALIDATION_ERROR')
-  }
-}
-adminRouter.get('/catalogues',asyncRoute(async(req,res)=>{const {page,limit,skip}=pagination(req),q=String(req.query.q??'');const where:any={businessId:req.principal!.businessId,...(q?{title:{contains:q,mode:'insensitive'}}:{})};const [data,total]=await prisma.$transaction([prisma.catalogue.findMany({where,skip,take:limit,include:{items:true},orderBy:{createdAt:'desc'}}),prisma.catalogue.count({where})]);res.json({data,meta:{page,limit,total}})})); adminRouter.post('/catalogues',allow('OWNER','ADMIN','STAFF','SALES'),asyncRoute(async(req,res)=>{const d=catalogueInput.parse(req.body);await assertCatalogueRefsOwned(req.principal!.businessId,d);const token=crypto.randomBytes(24).toString('base64url');const pinHash=d.pin?await (await import('argon2')).default.hash(d.pin):undefined;const catalogue=await prisma.catalogue.create({data:{...d,pin:undefined,pinHash,businessId:req.principal!.businessId,token,items:{create:d.items}},include:{items:true}});await prisma.auditLog.create({data:{businessId:req.principal!.businessId,actorId:req.principal!.id,action:'CATALOGUE_CREATED',entity:'Catalogue',entityId:catalogue.id}});res.status(201).json({data:catalogue})}))
-adminRouter.post('/catalogues/:id/disable',allow('OWNER','ADMIN'),asyncRoute(async(req,res)=>{const r=await prisma.catalogue.updateMany({where:{id:String(req.params.id),businessId:req.principal!.businessId},data:{status:'DISABLED'}});if(!r.count)throw new HttpError(404,'Catalogue not found','NOT_FOUND');await prisma.auditLog.create({data:{businessId:req.principal!.businessId,actorId:req.principal!.id,action:'CATALOGUE_DISABLED',entity:'Catalogue',entityId:String(req.params.id)}});res.status(204).end()}))
-adminRouter.patch('/catalogues/:id',allow('OWNER','ADMIN','STAFF','SALES'),asyncRoute(async(req,res)=>{const d=catalogueInput.partial().parse(req.body);await assertCatalogueRefsOwned(req.principal!.businessId,d);const x=await prisma.catalogue.updateMany({where:{id:String(req.params.id),businessId:req.principal!.businessId},data:{...d,items:undefined,pin:undefined}});if(!x.count)throw new HttpError(404,'Catalogue not found','NOT_FOUND');res.status(204).end()}))
-adminRouter.get('/enquiries',asyncRoute(async(req,res)=>{const {page,limit,skip}=pagination(req);const where={businessId:req.principal!.businessId,...(req.query.status?{status:String(req.query.status) as any}:{})};const [data,total]=await prisma.$transaction([prisma.enquiry.findMany({where,skip,take:limit,include:{items:true,customer:true},orderBy:{createdAt:'desc'}}),prisma.enquiry.count({where})]);res.json({data,meta:{page,limit,total}})})); adminRouter.patch('/enquiries/:id/status',allow('OWNER','ADMIN','STAFF','SALES'),asyncRoute(async(req,res)=>{const d=z.object({status:z.enum(['NEW','CONTACTED','NEGOTIATING','CONVERTED','CLOSED']),note:z.string().optional()}).parse(req.body);const x=await prisma.enquiry.updateMany({where:{id:String(req.params.id),businessId:req.principal!.businessId},data:{status:d.status}});if(!x.count)throw new HttpError(404,'Enquiry not found','NOT_FOUND');await prisma.enquiryStatusHistory.create({data:{enquiryId:String(req.params.id),...d}});res.status(204).end()}))
+registerCatalogueRoutes(adminRouter)
+adminRouter.get('/enquiries',asyncRoute(async(req,res)=>{const {page,limit,skip}=pagination(req);const where={businessId:req.principal!.businessId,...(req.query.status?{status:String(req.query.status) as any}:{})};const [data,total]=await prisma.$transaction([prisma.enquiry.findMany({where,skip,take:limit,include:{items:true,customer:true},orderBy:{createdAt:'desc'}}),prisma.enquiry.count({where})]);res.json({data:data.map(e=>({...e,items:e.items.map(({imageSnapshot,...item})=>({...item,imageUrl:imageSnapshot?publicUrl(imageSnapshot):null}))})),meta:{page,limit,total}})})); adminRouter.patch('/enquiries/:id/status',allow('OWNER','ADMIN','STAFF','SALES'),asyncRoute(async(req,res)=>{const d=z.object({status:z.enum(['NEW','CONTACTED','NEGOTIATING','CONVERTED','CLOSED']),note:z.string().optional()}).parse(req.body);const x=await prisma.enquiry.updateMany({where:{id:String(req.params.id),businessId:req.principal!.businessId},data:{status:d.status}});if(!x.count)throw new HttpError(404,'Enquiry not found','NOT_FOUND');await prisma.enquiryStatusHistory.create({data:{enquiryId:String(req.params.id),...d}});res.status(204).end()}))
 
 // Safe, tenant-scoped deletion for every admin-managed entity (see deletion.ts / DELETION.md).
 registerDeletionRoutes(adminRouter)
