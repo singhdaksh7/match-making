@@ -286,3 +286,23 @@ test('tablet and phone layouts of the builder variant step do not overflow', asy
     await ctx.close()
   }
 })
+
+test('catalogue editing can add a product; the new product shares nothing until variants are chosen', async () => {
+  const variants = (await api(admin.request, 'get', `/products/${s.product.id}`)).variants as any[]
+  const created = await api(admin.request, 'post', '/catalogues', { customerId: s.customer!.id, title: `Add product ${tag}`, status: 'ACTIVE', items: [{ productId: s.product.id, variants: [{ variantId: variants[0].id }] }] })
+  await page.goto(`${baseURL}/catalogues/${created.id}`)
+  await expect(page.getByTestId(`catalogue-entry-PRK-${tag}`)).toContainText('1 of 5 variants shared')
+  await page.getByTestId('edit-shared-variants').click()
+  await page.getByTestId('add-products').locator('summary').click()
+  await page.getByTestId(`add-product-UI-${tag}`).click()
+  const added = page.getByTestId(`picker-product-UI-${tag}`)
+  await expect(added.getByTestId('picker-count')).toHaveText('0 / 4') // nothing is shared implicitly
+  await expect(page.getByTestId('save-shared-variants')).toBeDisabled()
+  await added.getByTestId('select-all-variants').click()
+  await page.getByTestId('save-shared-variants').click()
+  await expect(page.getByText('Shared variants updated').first()).toBeVisible()
+  await expect(page.getByTestId(`catalogue-entry-UI-${tag}`)).toContainText('4 of 4 variants shared')
+  const after = await api(admin.request, 'get', `/catalogues/${created.id}`)
+  expect(after.items).toHaveLength(2)
+  expect(after.token).toBe(created.token) // editing never regenerates the public token
+})

@@ -20,6 +20,7 @@ export default function CatalogueDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [removingItem, setRemovingItem] = useState<{ id: string; name: string } | null>(null)
   const [editing, setEditing] = useState<ProductSelections | null>(null)
+  const [addQuery, setAddQuery] = useState('')
   const [saving, setSaving] = useState(false)
 
   const catalogue = data.catalogues.find((c) => c.id === id)
@@ -34,6 +35,7 @@ export default function CatalogueDetailPage() {
 
   function openEditor() {
     if (!catalogue) return
+    setAddQuery('')
     setEditing(Object.fromEntries(catalogue.items.map((item) => [item.productId, Object.fromEntries(item.variants.map((v) => [v.variantId, v.customPrice ?? null]))])))
   }
 
@@ -101,9 +103,10 @@ export default function CatalogueDetailPage() {
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-stone-900">Products in this Catalogue ({products.length})</h2>
           <button type="button" data-testid="edit-shared-variants" onClick={openEditor} className="flex h-10 items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3.5 text-sm font-semibold text-stone-700 hover:bg-stone-50">
-            <Pencil size={14} /> Edit shared variants
+            <Pencil size={14} /> Edit products &amp; variants
           </button>
         </div>
+        {entries.length === 0 && <p className="rounded-2xl border border-dashed border-stone-300 bg-white p-5 text-center text-sm text-stone-500">This catalogue has no products, so customers see nothing. Use “Edit products & variants” to add products and choose their variants.</p>}
         <div className="space-y-3">
           {entries.map(({ item, product: p }) => {
             if (!p) return null
@@ -125,7 +128,7 @@ export default function CatalogueDetailPage() {
                   )}
                 </div>
                 {sharedVariants.length === 0 ? (
-                  <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">No variants shared: customers cannot see this product. Use “Edit shared variants”.</p>
+                  <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">No variants shared: customers cannot see this product. Use “Edit products & variants”.</p>
                 ) : (
                   <ul className="mt-3 flex flex-wrap gap-1.5" data-testid="shared-variant-list">
                     {sharedVariants.map((v) => (
@@ -160,16 +163,33 @@ export default function CatalogueDetailPage() {
       <Modal
         open={Boolean(editing)} onClose={() => setEditing(null)} title="Edit shared variants" size="xl"
         footer={<div className="flex gap-2"><button type="button" onClick={() => setEditing(null)} className="h-11 flex-1 rounded-xl border border-stone-200 text-sm font-semibold text-stone-700">Cancel</button>
-          <button type="button" data-testid="save-shared-variants" disabled={saving || !editing || products.some((p) => p && Object.keys(editing[p.id] ?? {}).length === 0)} onClick={saveSelection} className="h-11 flex-1 rounded-xl bg-stone-900 text-sm font-semibold text-white disabled:opacity-40">{saving ? 'Saving…' : 'Save changes'}</button></div>}
+          <button type="button" data-testid="save-shared-variants" disabled={saving || !editing || Object.keys(editing).length === 0 || Object.values(editing).some((chosen) => Object.keys(chosen).length === 0)} onClick={saveSelection} className="h-11 flex-1 rounded-xl bg-stone-900 text-sm font-semibold text-white disabled:opacity-40">{saving ? 'Saving…' : 'Save changes'}</button></div>}
       >
         {editing && (
-          <CatalogueVariantPicker
-            products={products.filter((p): p is NonNullable<typeof p> => Boolean(p))}
-            variantsFor={(productId) => activeVariantsForProduct(data, productId)}
-            selections={editing}
-            onChange={(productId, next) => setEditing((prev) => ({ ...(prev ?? {}), [productId]: next }))}
-            adjustmentPct={adjustmentPct}
-          />
+          <div className="space-y-4">
+            <details className="rounded-2xl border border-stone-200 bg-white p-3.5" data-testid="add-products" open={Object.keys(editing).length === 0}>
+              <summary className="cursor-pointer text-sm font-semibold text-stone-800">Add products to this catalogue</summary>
+              <input value={addQuery} onChange={(e) => setAddQuery(e.target.value)} placeholder="Search products..." className="mt-3 h-11 w-full rounded-xl border border-stone-200 px-3 text-sm" />
+              <ul className="mt-2 max-h-56 divide-y divide-stone-100 overflow-y-auto rounded-xl border border-stone-100">
+                {data.products
+                  .filter((p) => p.status === 'active' && !(p.id in editing) && (`${p.name} ${p.code}`.toLowerCase().includes(addQuery.toLowerCase())))
+                  .map((p) => (
+                    <li key={p.id} className="flex items-center gap-3 px-3 py-2">
+                      <ImageWithFallback src={primaryImage(p)} alt={p.name} className="h-10 w-10 shrink-0 rounded-lg object-cover" />
+                      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-stone-800">{p.name}</span><span className="block text-xs text-stone-400">{p.code} · {activeVariantsForProduct(data, p.id).length} variants</span></span>
+                      <button type="button" data-testid={`add-product-${p.code}`} onClick={() => setEditing((prev) => ({ ...(prev ?? {}), [p.id]: {} }))} className="h-10 shrink-0 rounded-lg border border-stone-300 px-3 text-xs font-semibold text-stone-700">Add</button>
+                    </li>
+                  ))}
+              </ul>
+            </details>
+            <CatalogueVariantPicker
+              products={data.products.filter((p) => p.id in editing)}
+              variantsFor={(productId) => activeVariantsForProduct(data, productId)}
+              selections={editing}
+              onChange={(productId, next) => setEditing((prev) => ({ ...(prev ?? {}), [productId]: next }))}
+              adjustmentPct={adjustmentPct}
+            />
+          </div>
         )}
       </Modal>
       {deleting && (
