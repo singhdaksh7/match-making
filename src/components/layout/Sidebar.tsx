@@ -4,6 +4,7 @@ import {
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { BRAND } from '@/config/brand'
 import { cn } from '@/utils/cn'
 
 const NAV = [
@@ -36,13 +37,10 @@ export function Sidebar() {
   return (
     <aside className="hidden w-64 shrink-0 flex-col border-r border-stone-200 bg-white lg:flex">
       <div className="flex items-center gap-2.5 px-6 py-6">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-stone-900 font-serif text-base font-semibold text-white">
-          V
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-900 font-serif text-sm font-semibold text-white">
+          {BRAND.monogram}
         </div>
-        <div>
-          <p className="font-serif text-base font-semibold leading-none text-stone-900">Vastraa</p>
-          <p className="text-[11px] font-medium tracking-wide text-stone-400">WHOLESALE</p>
-        </div>
+        <p className="font-serif text-[15px] font-semibold leading-tight text-stone-900">{BRAND.name}</p>
       </div>
 
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-4">

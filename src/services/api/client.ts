@@ -1,3 +1,5 @@
+import { BRAND } from '@/config/brand'
+
 export type ApiErrorCode = 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'VALIDATION' | 'NETWORK' | 'SERVER' | 'UNKNOWN'
 
 export class ApiError extends Error {
@@ -44,7 +46,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     return (body.data ?? body) as T
   } catch (error) {
     if (error instanceof ApiError) throw error
-    throw new ApiError(0, 'NETWORK', 'Unable to reach Vastraa. Check your connection and try again.')
+    throw new ApiError(0, 'NETWORK', `Unable to reach ${BRAND.name}. Check your connection and try again.`)
   }
 }
 

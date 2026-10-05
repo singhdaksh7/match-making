@@ -39,7 +39,7 @@ async function assertNoOverflow(page: Page, label: string) {
 
 async function login(page: Page) {
   await page.goto(`${baseURL}/login`)
-  await page.getByPlaceholder('admin@vastraa.demo').fill('admin@vastraa.demo')
+  await page.getByPlaceholder('Enter your email').fill('admin@vastraa.demo')
   await page.getByPlaceholder('••••••••').fill('ChangeMe123!')
   await page.getByRole('button', { name: 'Sign In' }).click()
   await expect(page).toHaveURL(/dashboard/)

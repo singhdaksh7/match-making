@@ -40,7 +40,7 @@ export default function CustomerCataloguePage() {
   if (status === 'disabled' || status === 'expired') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#faf8f5] px-6">
-        <EmptyState icon={Lock} title={status === 'expired' ? 'This catalogue has expired' : 'This catalogue is no longer available'} description="Please contact Vastraa Wholesale for an updated link." />
+        <EmptyState icon={Lock} title={status === 'expired' ? 'This catalogue has expired' : 'This catalogue is no longer available'} description={`Please contact ${data.settings.business.name} for an updated link.`} />
       </div>
     )
   }
@@ -76,6 +76,7 @@ export default function CustomerCataloguePage() {
 function CatalogueContent({ catalogue, slug, query, setQuery, category, setCategory, selectionCount }: any) {
   const { data } = useAppData()
   const customer = data.customers.find((c) => c.id === catalogue.customerId)
+  const customerLabel = customer?.businessName ?? ''
   const products = useMemo(() => catalogueProducts(data, catalogue), [data, catalogue])
 
   const categories = useMemo(() => {
@@ -97,9 +98,9 @@ function CatalogueContent({ catalogue, slug, query, setQuery, category, setCateg
     <div className="min-h-screen bg-[#faf8f5] pb-24">
       <div className="sticky top-0 z-30 bg-stone-900 text-white">
         <div className="mx-auto max-w-5xl px-5 py-6 text-center">
-          <p className="font-serif text-base font-semibold">Vastraa Wholesale</p>
-          <p className="mt-2 text-xs uppercase tracking-wide text-stone-300">Private Wholesale Collection · Prepared for</p>
-          <p className="text-lg font-semibold">{customerName(data, catalogue.customerId)}</p>
+          <p className="font-serif text-base font-semibold">{data.settings.business.name}</p>
+          <p className="mt-2 text-xs uppercase tracking-wide text-stone-300">Private Wholesale Collection{customerLabel ? ' · Prepared for' : ''}</p>
+          {customerLabel && <p className="text-lg font-semibold">{customerLabel}</p>}
           <p className="mt-1 text-sm text-stone-300">{catalogue.name}</p>
           {catalogue.message && <p className="mx-auto mt-3 max-w-md text-sm text-stone-200">{catalogue.message}</p>}
           <div className="mt-3.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-stone-300">

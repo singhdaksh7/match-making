@@ -2,9 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { ApiError, apiClient } from '@/services/api/client'
 import { backendUserToFrontendUser } from '@/services/api/adapters'
 import type { User } from '@/types'
+import { BRAND } from '@/config/brand'
 
-export const DEMO_EMAIL = 'admin@vastraa.demo'
-export const DEMO_PASSWORD = 'ChangeMe123!'
 
 interface AuthContextValue {
   user: User | null
@@ -35,7 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: true }
     } catch (error) {
       if (error instanceof ApiError && error.code === 'UNAUTHENTICATED') return { success: false, error: 'Invalid email or password.' }
-      if (error instanceof ApiError && error.code === 'NETWORK') return { success: false, error: 'Vastraa is unavailable. Please try again shortly.' }
+      if (error instanceof ApiError && error.code === 'NETWORK') return { success: false, error: `${BRAND.name} is unavailable. Please try again shortly.` }
       return { success: false, error: 'We could not sign you in. Please try again.' }
     }
   }, [])

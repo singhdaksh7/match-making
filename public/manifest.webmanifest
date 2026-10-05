@@ -1,7 +1,7 @@
 {
-  "name": "Vastraa Wholesale",
-  "short_name": "Vastraa",
-  "description": "Mobile B2B Wholesale & Inventory Management",
+  "name": "Subh Laxmi Collection",
+  "short_name": "Subh Laxmi",
+  "description": "Wholesale catalogues, inventory and enquiries",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#faf8f5",

@@ -10,6 +10,7 @@ import { Modal } from '@/components/ui/Modal'
 import { useAppData } from '@/context/AppDataContext'
 import { useToast } from '@/context/ToastContext'
 import { COLORS } from '@/data/attributes'
+import { BRAND } from '@/config/brand'
 import type { Catalogue, CatalogueItem, CatalogueSettings } from '@/types'
 import { formatINR } from '@/utils/format'
 import { applyPriceAdjustment, primaryImage, totalStockForProduct, variantsForProduct, waCatalogueLink } from '@/utils/selectors'
@@ -156,7 +157,7 @@ export default function CatalogueBuilderPage() {
   const designsLabel = `${designCount} ${designCount === 1 ? 'design' : 'designs'}`
   const accessLabel = generated?.expiresAt ? `Expires ${new Date(generated.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'No expiry'
   const waMessage = generated && customer
-    ? `Hi ${customer.contactPerson} 👋\n\nWe've prepared a private wholesale collection for ${customer.businessName}.\n\n📦 ${designsLabel}\n🎨 Multiple colours & variants\n✅ Ready stock available\n\nView your catalogue:\n${catalogueLink}\n\nSelect the designs, colours, sizes and quantities you're interested in and send us your enquiry directly.\n\n– Vastraa Wholesale`
+    ? `Hi ${customer.contactPerson} 👋\n\nWe've prepared a private wholesale collection for ${customer.businessName}.\n\n📦 ${designsLabel}\n🎨 Multiple colours & variants\n✅ Ready stock available\n\nView your catalogue:\n${catalogueLink}\n\nSelect the designs, colours, sizes and quantities you're interested in and send us your enquiry directly.\n\n– ${BRAND.name}`
     : ''
 
   return (
@@ -400,7 +401,7 @@ export default function CatalogueBuilderPage() {
           </div>
           <div className={`mx-auto overflow-hidden rounded-3xl border-8 border-stone-900 bg-white ${devicePreview === 'mobile' ? 'max-w-sm' : 'max-w-3xl'}`}>
             <div className="bg-stone-900 px-5 py-4 text-center text-white">
-              <p className="font-serif text-sm font-semibold">Vastraa Wholesale</p>
+              <p className="font-serif text-sm font-semibold">{BRAND.name}</p>
               <p className="mt-1 text-xs text-stone-300">Private Collection for</p>
               <p className="text-base font-semibold">{customer?.businessName}</p>
               <p className="mt-1 text-sm">{name}</p>
@@ -515,10 +516,10 @@ function CatalogueQrModal({ open, onClose, url, onCopy, customerName, catalogueN
     if (!image) return
     const link = document.createElement('a')
     link.href = image
-    link.download = 'vastraa-catalogue-qr.png'
+    link.download = 'subh-laxmi-catalogue-qr.png'
     link.click()
   }
-  return <Modal open={open} onClose={onClose} title="Vastraa Wholesale" size="sm">
+  return <Modal open={open} onClose={onClose} title={BRAND.name} size="sm">
     <div className="space-y-4 text-center"><div><p className="font-serif text-xl font-semibold text-stone-900">Catalogue QR Code</p><p className="mt-1 text-sm text-stone-500">Customer: {customerName}</p><p className="text-sm text-stone-500">Catalogue: {catalogueName}</p></div>
       <div className="mx-auto w-fit rounded-2xl border border-stone-200 bg-white p-3 shadow-sm">{image ? <img src={image} alt="Scannable QR code for the catalogue" className="h-56 w-56" /> : <div className="h-56 w-56 animate-pulse rounded-xl bg-stone-100" />}</div>
       <p className="text-sm text-stone-500">Scan to open this private wholesale catalogue</p>

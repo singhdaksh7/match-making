@@ -1,22 +1,23 @@
 import type { AppSettings, Business, User } from '@/types'
+import { BRAND } from '@/config/brand'
 
 export const BUSINESS: Business = {
   id: 'biz-1',
-  name: 'Vastraa Wholesale',
-  tagline: 'Fashion. Variety. Delivered.',
-  type: 'Manufacturer & Wholesale Clothing Supplier',
-  phone: '+91 98200 11223',
-  whatsapp: '+91 98200 11223',
-  email: 'hello@vastraa.demo',
-  address: '204, Textile Market, Ring Road',
-  city: 'Surat',
-  state: 'Gujarat',
+  name: BRAND.name,
+  tagline: '',
+  type: 'Wholesale',
+  phone: '',
+  whatsapp: BRAND.whatsapp,
+  email: '',
+  address: '',
+  city: '',
+  state: '',
 }
 
 export const OWNER: User = {
   id: 'user-1',
-  name: 'Amit Shah',
-  email: 'admin@vastraa.demo',
+  name: '',
+  email: '',
   role: 'owner',
 }
 

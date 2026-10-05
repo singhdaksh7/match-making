@@ -89,7 +89,7 @@ test('public catalogue → K-101 two variants → enquiry → admin verify → s
   const adminContext = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   const adminPage = await adminContext.newPage()
   await adminPage.goto(`${baseURL}/login`)
-  await adminPage.getByPlaceholder('admin@vastraa.demo').fill('admin@vastraa.demo')
+  await adminPage.getByPlaceholder('Enter your email').fill('admin@vastraa.demo')
   await adminPage.getByPlaceholder('••••••••').fill('ChangeMe123!')
   await adminPage.getByRole('button', { name: 'Sign In' }).click()
   await expect(adminPage).toHaveURL(/dashboard/)

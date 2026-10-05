@@ -6,7 +6,7 @@ import crypto from 'node:crypto'
 import { publicUrl } from './storage/index.js'
 export const publicRouter=Router()
 const liveCatalogue=async(token:string)=>{
-  const c=await prisma.catalogue.findUnique({where:{token},include:{items:{include:{product:{include:{media:true,allowedValues:{include:{attributeValue:{include:{attribute:true}},images:{orderBy:[{sortOrder:'asc'},{createdAt:'asc'}]}}},variants:{include:{attributeValues:{include:{attributeValue:{include:{attribute:true}}}}}}}}}}}})
+  const c=await prisma.catalogue.findUnique({where:{token},include:{business:{select:{name:true}},items:{include:{product:{include:{media:true,allowedValues:{include:{attributeValue:{include:{attribute:true}},images:{orderBy:[{sortOrder:'asc'},{createdAt:'asc'}]}}},variants:{include:{attributeValues:{include:{attributeValue:{include:{attribute:true}}}}}}}}}}}})
   if(!c||c.status!=='ACTIVE'||(c.expiresAt&&c.expiresAt<new Date()))throw new HttpError(404,'Catalogue is unavailable','CATALOGUE_UNAVAILABLE')
   return c
 }
@@ -31,7 +31,7 @@ const attributeImages=(product:LiveProduct)=>product.allowedValues
     images:row.images.map(i=>({url:publicUrl(i.objectKey),altText:i.altText,sortOrder:i.sortOrder})),
   }))
 const safe=(c:Awaited<ReturnType<typeof liveCatalogue>>)=>({
-  token:c.token,title:c.title,message:c.message,expiresAt:c.expiresAt,
+  business:{name:c.business.name},token:c.token,title:c.title,message:c.message,expiresAt:c.expiresAt,
   settings:{showPrice:c.showPrice,showExactStock:c.showExactStock,showAvailability:c.showAvailability,showMOQ:c.showMOQ,allowSelection:c.allowSelection,allowEnquiry:c.allowEnquiry,allowImageDownload:c.allowImageDownload},
   products:c.items.map(i=>({
     id:i.product.id,code:i.product.code,name:i.product.name,description:i.product.description,moq:c.showMOQ?i.product.moq:undefined,

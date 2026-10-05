@@ -21,7 +21,7 @@ export default function EnquirySuccessPage() {
           <CheckCircle2 size={30} />
         </div>
         <h1 className="mt-4 font-serif text-xl font-semibold text-stone-900">Enquiry Sent Successfully</h1>
-        <p className="mt-2 text-sm text-stone-500">Your selected products have been shared with Vastraa Wholesale.</p>
+        <p className="mt-2 text-sm text-stone-500">Your selected products have been shared with {data.settings.business.name}.</p>
         {refNumber && (
           <p className="mt-4 rounded-xl bg-stone-100 py-2.5 text-sm font-mono font-semibold text-stone-700">
             Reference: {refNumber}
@@ -32,14 +32,14 @@ export default function EnquirySuccessPage() {
           <Link to={`/catalogue/${slug}`} className="rounded-xl bg-stone-900 py-3 text-sm font-semibold text-white hover:bg-stone-800">
             Continue Browsing
           </Link>
-          <a
+          {data.settings.business.whatsapp && <a
             href={waCatalogueLink(data.settings.business.whatsapp, `Hi, I just submitted an enquiry (${refNumber ?? ''}) for ${catalogue.name}.`)}
             target="_blank"
             rel="noreferrer"
             className="flex items-center justify-center gap-1.5 rounded-xl border border-stone-200 py-3 text-sm font-semibold text-stone-700 hover:bg-stone-50"
           >
-            <MessageCircle size={15} /> WhatsApp Vastraa
-          </a>
+            <MessageCircle size={15} /> WhatsApp {data.settings.business.name}
+          </a>}
         </div>
       </div>
     </div>

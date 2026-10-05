@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useAppData } from '@/context/AppDataContext'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
+import { BRAND } from '@/config/brand'
 
 export default function SettingsPage() {
   const { data } = useAppData()
@@ -68,7 +69,7 @@ export default function SettingsPage() {
       </Section>
 
       <Section icon={Palette} title="Appearance">
-        <p className="text-sm text-stone-500">Vastraa Wholesale uses a warm neutral, premium fashion-forward theme across the admin and customer catalogue.</p>
+        <p className="text-sm text-stone-500">{BRAND.name} uses a warm neutral, premium fashion-forward theme across the admin and customer catalogue.</p>
       </Section>
 
     </div>

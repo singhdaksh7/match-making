@@ -16,7 +16,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 
 async function login(page: Page) {
   await page.goto(`${baseURL}/login`)
-  await page.getByPlaceholder('admin@vastraa.demo').fill(adminEmail)
+  await page.getByPlaceholder('Enter your email').fill(adminEmail)
   await page.getByPlaceholder('••••••••').fill(adminPassword)
   await page.getByRole('button', { name: /sign in|log in/i }).click()
   await expect(page).toHaveURL(/\/dashboard/)

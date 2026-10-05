@@ -6,7 +6,7 @@
 //   ADMIN_PASSWORD   optional if stdin is a TTY (hidden prompt); otherwise required. Min 12 chars.
 //   BUSINESS_SLUG    optional. Business lookup: slug if given -> else the only business ->
 //                    else (no business exists) create one using BUSINESS_NAME (default
-//                    "Vastraa Wholesale") and BUSINESS_SLUG (default "vastraa-wholesale").
+//                    "Subh Laxmi Collection") and BUSINESS_SLUG (default "vastraa-wholesale").
 //                    If several businesses exist and no slug is given, the script aborts.
 import 'dotenv/config'
 import argon2 from 'argon2'
@@ -57,7 +57,7 @@ async function main() {
     }
     let createdBusiness = false
     if (!business) {
-      business = await db.business.create({ data: { name: process.env.BUSINESS_NAME?.trim() || 'Vastraa Wholesale', slug: slug || 'vastraa-wholesale' } })
+      business = await db.business.create({ data: { name: process.env.BUSINESS_NAME?.trim() || 'Subh Laxmi Collection', slug: slug || 'vastraa-wholesale' } })
       createdBusiness = true
     }
 

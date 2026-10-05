@@ -1,7 +1,8 @@
-import { Eye, EyeOff, Lock, Mail, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, Lock, Mail } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { useAuth, DEMO_EMAIL, DEMO_PASSWORD } from '@/context/AuthContext'
+import { useAuth } from '@/context/AuthContext'
+import { BRAND } from '@/config/brand'
 
 export function LoginPage() {
   const { user, login } = useAuth()
@@ -38,11 +39,11 @@ export function LoginPage() {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-stone-900/70 to-stone-900/40" />
         <div className="relative flex items-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white font-serif text-lg font-semibold text-stone-900">V</div>
-          <p className="font-serif text-xl font-semibold">Vastraa Wholesale</p>
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white font-serif text-sm font-semibold text-stone-900">{BRAND.monogram}</div>
+          <p className="font-serif text-xl font-semibold">{BRAND.name}</p>
         </div>
         <div className="relative max-w-md">
-          <p className="font-serif text-4xl font-medium leading-tight">Fashion. Variety. Delivered.</p>
+          <p className="font-serif text-4xl font-medium leading-tight">Wholesale catalogues, made simple.</p>
           <p className="mt-4 text-sm text-stone-300">
             Manage your inventory, build personalized catalogues, and turn WhatsApp conversations into wholesale orders — all from one dashboard.
           </p>
@@ -52,8 +53,8 @@ export function LoginPage() {
       <div className="flex flex-1 items-center justify-center p-6 sm:p-10">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-stone-900 font-serif text-lg font-semibold text-white">V</div>
-            <p className="font-serif text-xl font-semibold text-stone-900">Vastraa Wholesale</p>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-stone-900 font-serif text-sm font-semibold text-white">{BRAND.monogram}</div>
+            <p className="font-serif text-xl font-semibold text-stone-900">{BRAND.name}</p>
           </div>
 
           <h1 className="font-serif text-2xl font-semibold text-stone-900">Welcome back</h1>
@@ -68,7 +69,7 @@ export function LoginPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@vastraa.demo"
+                  placeholder="Enter your email"
                   required
                   className="w-full rounded-xl border border-stone-200 py-3 pl-10 pr-4 text-sm focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-100"
                 />
@@ -105,14 +106,6 @@ export function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 flex items-start gap-2.5 rounded-xl border border-[#e6d5bd] bg-[#f5ede2] px-4 py-3">
-            <ShieldCheck size={16} className="mt-0.5 shrink-0 text-[#7a5230]" />
-            <div className="text-xs text-[#7a5230]">
-              <p className="font-semibold">Demo credentials</p>
-              <p className="mt-0.5">Email: <span className="font-mono">{DEMO_EMAIL}</span></p>
-              <p>Password: <span className="font-mono">{DEMO_PASSWORD}</span></p>
-            </div>
-          </div>
         </div>
       </div>
     </div>

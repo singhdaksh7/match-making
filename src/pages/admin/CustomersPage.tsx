@@ -8,6 +8,7 @@ import { useAppData } from '@/context/AppDataContext'
 import type { CustomerType } from '@/types'
 import { timeAgo } from '@/utils/format'
 import { waCatalogueLink } from '@/utils/selectors'
+import { BRAND } from '@/config/brand'
 
 const TYPES: CustomerType[] = ['Wholesaler', 'Retailer', 'Distributor', 'Reseller']
 
@@ -79,7 +80,7 @@ export default function CustomersPage() {
                     <Phone size={14} />
                   </a>
                   <a
-                    href={waCatalogueLink(c.whatsapp || c.phone, `Hi ${c.contactPerson}, from Vastraa Wholesale.`)}
+                    href={waCatalogueLink(c.whatsapp || c.phone, `Hi ${c.contactPerson}, from ${BRAND.name}.`)}
                     target="_blank"
                     rel="noreferrer"
                     aria-label={`WhatsApp ${c.contactPerson}`}

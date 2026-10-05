@@ -27,10 +27,10 @@ test('mobile 390x844 release gate — admin + public catalogue', async ({ browse
 
   await admin.goto(`${baseURL}/login`)
   await assertNoOverflow(admin, 'login')
-  await expect(admin.getByPlaceholder('admin@vastraa.demo')).toBeVisible()
+  await expect(admin.getByPlaceholder('Enter your email')).toBeVisible()
   await expect(admin.getByRole('button', { name: 'Sign In' })).toBeVisible()
 
-  await admin.getByPlaceholder('admin@vastraa.demo').fill('admin@vastraa.demo')
+  await admin.getByPlaceholder('Enter your email').fill('admin@vastraa.demo')
   await admin.getByPlaceholder('••••••••').fill('ChangeMe123!')
   await admin.getByRole('button', { name: 'Sign In' }).click()
   await expect(admin).toHaveURL(/dashboard/)

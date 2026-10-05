@@ -1,4 +1,4 @@
-import { Bell, BookOpen, Menu, Plus, Search } from 'lucide-react'
+import { Bell, Menu, Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAppData } from '@/context/AppDataContext'
@@ -6,16 +6,16 @@ import { primaryImage } from '@/utils/selectors'
 import { timeAgo } from '@/utils/format'
 import { cn } from '@/utils/cn'
 import { NotificationIcon } from './NotificationIcon'
-import { Modal } from '@/components/ui/Modal'
+import { useAuth } from '@/context/AuthContext'
 
 export function Header({ onMenu }: { onMenu: () => void }) {
   const { data } = useAppData()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
-  const [guideOpen, setGuideOpen] = useState(false)
 
   const results = useMemo(() => {
     if (!query.trim()) return null
@@ -88,8 +88,6 @@ export function Header({ onMenu }: { onMenu: () => void }) {
       </div>
 
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-        <span title="Prototype environment — demo data" className="hidden rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-bold tracking-wide text-amber-700 md:inline">DEMO MODE</span>
-        <button onClick={() => setGuideOpen(true)} className="hidden items-center gap-1.5 rounded-xl border border-stone-200 px-3 py-2 text-sm font-semibold text-stone-600 hover:bg-stone-50 sm:flex"><BookOpen size={15} /> Demo Guide</button>
         <div className="relative">
           <button
             onClick={() => setQuickAddOpen((o) => !o)}
@@ -139,30 +137,9 @@ export function Header({ onMenu }: { onMenu: () => void }) {
         </div>
 
         <div className="hidden h-9 w-9 items-center justify-center rounded-full bg-[#f5ede2] text-sm font-semibold text-[#7a5230] sm:flex">
-          AS
+          {user?.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
         </div>
       </div>
-      <DemoGuide open={guideOpen} onClose={() => setGuideOpen(false)} navigate={navigate} />
     </header>
   )
-}
-
-function DemoGuide({ open, onClose, navigate }: { open: boolean; onClose: () => void; navigate: (to: string) => void }) {
-  const steps = [
-    ['01', 'Dashboard', 'See inventory, catalogue activity, enquiries and low-stock alerts.', '/dashboard', 'Open Dashboard'],
-    ['02', 'Collections', 'Open September New Arrivals.', '/inventory/collections', 'Open Collection'],
-    ['03', 'Customer', 'Open Raj Fashion House / Rajesh Kumar.', '/customers/cust-1', 'Open Customer'],
-    ['04', 'Create Catalogue', 'Create a private catalogue for Raj Fashion House.', '/catalogues/new?customer=cust-1&collection=col-1', 'Create Catalogue'],
-    ['05', 'Customer View', 'Open September New Arrivals as the buyer.', '/catalogue/raj-september-x7k29', 'Open Customer Catalogue'],
-    ['06', 'Product Selection', 'Use K-101: Black / XL / 24 pcs and Maroon / L / 12 pcs.', '/catalogue/raj-september-x7k29/product/prod-101', 'Open K-101'],
-    ['07', 'Send Enquiry', 'Open the selection and submit the wholesale enquiry.', '/catalogue/raj-september-x7k29/selection', 'Open Selection'],
-    ['08', 'Admin Enquiry', 'Open ENQ-2026-0018.', '/enquiries/enq-1', 'Open Enquiry'],
-    ['09', 'Analytics', 'Show catalogue and customer engagement.', '/analytics', 'Open Analytics'],
-  ]
-  const go = (to: string) => { onClose(); navigate(to) }
-  return <Modal open={open} onClose={onClose} title="Vastraa Demo Guide" size="lg">
-    <p className="mb-4 text-sm text-stone-500">Complete wholesale workflow in under 7 minutes.</p>
-    <div className="space-y-2">{steps.map(([number, title, text, to, label]) => <div key={number} className="flex items-center gap-3 rounded-xl border border-stone-100 p-3"><span className="text-xs font-bold text-[#7a5230]">{number}</span><div className="min-w-0 flex-1"><p className="text-sm font-semibold text-stone-800">{title}</p><p className="text-xs text-stone-500">{text}</p></div><button onClick={() => go(to)} className="shrink-0 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50">{label}</button></div>)}</div>
-    <button onClick={() => go('/settings')} className="mt-5 w-full rounded-xl border border-red-200 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50">Reset Demo</button>
-  </Modal>
 }

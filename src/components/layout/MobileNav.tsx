@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { BRAND } from '@/config/brand'
 import { cn } from '@/utils/cn'
 
 const NAV = [
@@ -42,8 +43,8 @@ export function MobileNav({ open, onClose }: { open: boolean; onClose: () => voi
       <div className="absolute inset-y-0 left-0 flex w-72 flex-col bg-white shadow-2xl animate-slide-up">
         <div className="flex items-center justify-between px-5 py-5">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-stone-900 font-serif text-base font-semibold text-white">V</div>
-            <p className="font-serif text-base font-semibold text-stone-900">Vastraa</p>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-900 font-serif text-sm font-semibold text-white">{BRAND.monogram}</div>
+            <p className="font-serif text-[15px] font-semibold leading-tight text-stone-900">{BRAND.name}</p>
           </div>
           <button onClick={onClose} aria-label="Close menu" className="flex h-9 w-9 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100">
             <X size={18} />

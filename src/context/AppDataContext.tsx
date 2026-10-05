@@ -72,7 +72,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       const publicCatalogue = await apiClient.get<any>(`/api/v1/public/catalogues/${encodeURIComponent(match[1])}`)
       const products = publicCatalogue.products.map((product: any) => ({ id: product.id, code: product.code, name: product.name, categoryId: '', description: product.description ?? '', media: product.media.map((media: any, index: number) => ({ id: `${product.id}-${index}`, url: media.url, isPrimary: media.primary })), attributeIds: [], allowedAttributeValueIds: [], attributeImages: (product.attributeImages ?? []).map((group: any) => ({ attributeKey: String(group.attribute?.name ?? '').toLowerCase(), attributeName: group.attribute?.name ?? '', valueId: group.value?.id ?? '', value: group.value?.value ?? '', images: (group.images ?? []).map((image: any, index: number) => ({ id: `${group.value?.id}-${index}`, url: image.url, altText: image.altText ?? undefined, sortOrder: image.sortOrder ?? index })) })), imageAttributeKeys: (product.attributes ?? []).filter((attribute: any) => attribute.supportsImages).map((attribute: any) => String(attribute.name).toLowerCase()), wholesalePrice: Number(product.variants[0]?.price ?? 0), moq: product.moq ?? 1, status: 'active' as const, views: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }))
       const variants = publicCatalogue.products.flatMap((product: any) => product.variants.map((variant: any) => ({ id: variant.id, productId: product.id, sku: variant.sku, attributes: Object.fromEntries(Object.entries(variant.attributes ?? {}).map(([key, value]) => [key.toLowerCase(), value])) as Record<string, string>, price: Number(variant.price ?? 0), stock: variant.stock ?? (variant.available === false ? 0 : 1), reserved: 0, status: 'active' as const, lowStockThreshold: 10 })))
-      setData((current) => ({ ...current, products, variants, catalogues: [{ id: match[1], slug: match[1], name: publicCatalogue.title, message: publicCatalogue.message ?? undefined, customerId: '', items: products.map((product: Product) => ({ productId: product.id, variantFilter: {}, allVariants: true })), settings: { showWholesalePrice: publicCatalogue.settings.showPrice, showExactStock: publicCatalogue.settings.showExactStock, showAvailability: publicCatalogue.settings.showAvailability, showMOQ: publicCatalogue.settings.showMOQ, allowProductSelection: publicCatalogue.settings.allowSelection, allowEnquiry: publicCatalogue.settings.allowEnquiry, allowImageDownload: publicCatalogue.settings.allowImageDownload, priceAdjustmentType: 'none', priceAdjustmentValue: 0, pinProtected: false, expiry: 'never' }, status: 'active', views: 0, uniqueVisitors: 0, createdAt: new Date().toISOString(), expiresAt: publicCatalogue.expiresAt ?? null }] }))
+      setData((current) => ({ ...current, settings: { ...current.settings, business: { ...current.settings.business, name: publicCatalogue.business?.name || current.settings.business.name } }, products, variants, catalogues: [{ id: match[1], slug: match[1], name: publicCatalogue.title, message: publicCatalogue.message ?? undefined, customerId: '', items: products.map((product: Product) => ({ productId: product.id, variantFilter: {}, allVariants: true })), settings: { showWholesalePrice: publicCatalogue.settings.showPrice, showExactStock: publicCatalogue.settings.showExactStock, showAvailability: publicCatalogue.settings.showAvailability, showMOQ: publicCatalogue.settings.showMOQ, allowProductSelection: publicCatalogue.settings.allowSelection, allowEnquiry: publicCatalogue.settings.allowEnquiry, allowImageDownload: publicCatalogue.settings.allowImageDownload, priceAdjustmentType: 'none', priceAdjustmentValue: 0, pinProtected: false, expiry: 'never' }, status: 'active', views: 0, uniqueVisitors: 0, createdAt: new Date().toISOString(), expiresAt: publicCatalogue.expiresAt ?? null }] }))
       return
     }
     const [products, categories, attributes, customers, collections, catalogues, enquiries] = await Promise.all([
@@ -173,7 +173,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         reason,
         note,
         createdAt: new Date().toISOString(),
-        createdBy: 'Amit Shah',
+        createdBy: user?.name ?? '',
       }
       return {
         ...d,
@@ -181,7 +181,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         inventoryEntries: [entry, ...d.inventoryEntries],
       }
     })
-  }, [data.variants, refresh])
+  }, [data.variants, refresh, user?.name])
 
   const incrementProductViews = useCallback((id: string) => {
     setData((d) => ({ ...d, products: d.products.map((p) => (p.id === id ? { ...p, views: p.views + 1 } : p)) }))
