@@ -2,10 +2,12 @@ import { Lock, PackageSearch, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import { CatalogueProductCard } from '@/components/catalogue/CatalogueProductCard'
+import { ActiveFilterChips, FilterButton, FilterPanel, FilterSheet } from '@/components/catalogue/CatalogueFilters'
 import { SelectionTray } from '@/components/catalogue/SelectionTray'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useAppData } from '@/context/AppDataContext'
 import { useCatalogueSelection } from '@/hooks/useCatalogueSelection'
+import { activeFilterCount, buildFacets, filterProducts, reconcileSelection, toggleValue, type AttributeSelection } from '@/utils/catalogueFilters'
 import { catalogueProductVariants, catalogueProducts, customerName, effectiveCatalogueStatus, isCatalogueExpired } from '@/utils/selectors'
 
 export default function CustomerCataloguePage() {
@@ -84,15 +86,27 @@ function CatalogueContent({ catalogue, slug, query, setQuery, category, setCateg
     return ids.map((id) => data.categories.find((c) => c.id === id)).filter(Boolean)
   }, [products, data])
 
-  const filtered = useMemo(() => {
-    let list = products
-    if (category !== 'all') list = list.filter((p: any) => p.categoryId === category)
-    if (query.trim()) {
-      const q = query.toLowerCase()
-      list = list.filter((p: any) => p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q))
-    }
-    return list
-  }, [products, category, query])
+  // Only the variants this catalogue shares ever reach the filters.
+  const filterable = useMemo(() => products.map((p: any) => ({ id: p.id, name: p.name, code: p.code, categoryId: p.categoryId, variants: catalogueProductVariants(data, catalogue, p) })), [products, data, catalogue])
+  const attributeNames = useMemo(() => Object.fromEntries(products.flatMap((p: any) => (p.publicAttributes ?? []).map((a: any) => [a.key, a.name]))), [products])
+  const [selection, setSelection] = useState<AttributeSelection>({})
+  const [sheetOpen, setSheetOpen] = useState(false)
+
+  // Facets describe the current category only, so switching category can never leave a filter that no longer applies.
+  const facets = useMemo(() => buildFacets(filterable.filter((p: any) => category === 'all' || p.categoryId === category), attributeNames), [filterable, category, attributeNames])
+
+  const filteredIds = useMemo(() => new Set(filterProducts(filterable, { categoryId: category, query, selection }).map((p: any) => p.id)), [filterable, category, query, selection])
+  const filtered = useMemo(() => products.filter((p: any) => filteredIds.has(p.id)), [products, filteredIds])
+  const filterCount = activeFilterCount(selection)
+
+  const chooseCategory = (id: string) => {
+    setCategory(id)
+    const next = buildFacets(filterable.filter((p: any) => id === 'all' || p.categoryId === id), attributeNames)
+    setSelection((current) => reconcileSelection(current, next))
+  }
+  const toggle = (key: string, value: string) => setSelection((current) => toggleValue(current, key, value))
+  const clearFilters = () => setSelection({})
+  const categoryOptions = categories.map((c: any) => ({ id: c.id, name: c.name }))
 
   return (
     <div className="min-h-screen bg-[#faf8f5] pb-24">
@@ -119,26 +133,45 @@ function CatalogueContent({ catalogue, slug, query, setQuery, category, setCateg
             />
           </div>
           <div className="mx-auto mt-3 flex max-w-5xl gap-2 overflow-x-auto no-scrollbar">
-            <Chip active={category === 'all'} onClick={() => setCategory('all')}>All</Chip>
+            <FilterButton count={filterCount} onClick={() => setSheetOpen(true)} />
+            <Chip active={category === 'all'} onClick={() => chooseCategory('all')}>All</Chip>
             {categories.map((c: any) => (
-              <Chip key={c.id} active={category === c.id} onClick={() => setCategory(c.id)}>{c.name}</Chip>
+              <Chip key={c.id} active={category === c.id} onClick={() => chooseCategory(c.id)}>{c.name}</Chip>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6">
-        {filtered.length === 0 ? (
-          <EmptyState icon={PackageSearch} title="No designs found" description="Try a different search or category." />
-        ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {filtered.map((p: any) => {
-              const variants = catalogueProductVariants(data, catalogue, p)
-              return <CatalogueProductCard key={p.id} product={p} variants={variants} catalogue={catalogue} slug={slug} />
-            })}
-          </div>
+      <div className="mx-auto flex max-w-5xl gap-6 px-4 py-5 sm:px-6">
+        {facets.length > 0 && (
+          <aside className="hidden w-60 shrink-0 lg:block" aria-label="Filters" data-testid="filter-sidebar">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm font-semibold text-stone-900">Filters</p>
+              {filterCount > 0 && <button type="button" onClick={clearFilters} className="text-xs font-semibold text-stone-600 underline underline-offset-2">Clear all</button>}
+            </div>
+            <FilterPanel facets={facets} selection={selection} onToggle={toggle} />
+          </aside>
         )}
+        <div className="min-w-0 flex-1">
+          <ActiveFilterChips facets={facets} selection={selection} onToggle={toggle} onClear={clearFilters} />
+          <p data-testid="result-count" className="mb-3 text-xs font-medium text-stone-500">{filtered.length} {filtered.length === 1 ? 'design' : 'designs'}</p>
+          {filtered.length === 0 ? (
+            <div data-testid="no-results">
+              <EmptyState icon={PackageSearch} title="No designs found" description={filterCount > 0 ? 'No design has a variant matching all of these filters. Try removing a filter.' : 'Try a different search or category.'} />
+              {filterCount > 0 && <button type="button" onClick={clearFilters} className="mx-auto mt-3 block rounded-full bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white">Clear all filters</button>}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-3">
+              {filtered.map((p: any) => {
+                const variants = catalogueProductVariants(data, catalogue, p)
+                return <CatalogueProductCard key={p.id} product={p} variants={variants} catalogue={catalogue} slug={slug} />
+              })}
+            </div>
+          )}
+        </div>
       </div>
+
+      <FilterSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onClear={clearFilters} resultCount={filtered.length} facets={facets} selection={selection} onToggle={toggle} categories={categoryOptions} category={category} onCategory={chooseCategory} />
 
       {catalogue.settings.allowProductSelection && <SelectionTray slug={slug} count={selectionCount} />}
     </div>

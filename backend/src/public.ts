@@ -19,6 +19,7 @@ const liveCatalogue = async (token: string) => {
         include: {
           variants: true, // the admin's explicit variant selection for this product
           product: { include: {
+            category: { select: { id: true, name: true } },
             media: true,
             allowedValues: { include: { ...valueInclude, images: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] } } },
             variants: { include: { attributeValues: { include: valueInclude }, media: { orderBy: { sortOrder: 'asc' } } } },
@@ -48,9 +49,11 @@ const sellableVariants = (item: LiveItem) => {
 }
 
 // Allowed values grouped per attribute, so clients can map a selected value name to its id.
-const productAttributes = (product: LiveProduct) => {
+// Only values that at least one SHARED variant uses are exposed: an unshared variant never leaks through the filters.
+const productAttributes = (product: LiveProduct, sharedValueIds: Set<string>) => {
   const byAttribute = new Map<string, { id: string; name: string; kind: string; supportsImages: boolean; values: { id: string; value: string; hex: string | null }[] }>()
   for (const row of product.allowedValues) {
+    if (!sharedValueIds.has(row.attributeValueId)) continue
     const a = row.attributeValue.attribute
     const entry = byAttribute.get(a.id) ?? { id: a.id, name: a.name, kind: a.kind, supportsImages: a.supportsImages, values: [] }
     entry.values.push({ id: row.attributeValue.id, value: row.attributeValue.value, hex: row.attributeValue.hex })
@@ -60,8 +63,8 @@ const productAttributes = (product: LiveProduct) => {
 }
 
 // Images only for supportsImages attributes, only for values enabled on the product, only values with >=1 image.
-const attributeImages = (product: LiveProduct) => product.allowedValues
-  .filter((row) => row.attributeValue.attribute.supportsImages && row.images.length > 0)
+const attributeImages = (product: LiveProduct, sharedValueIds: Set<string>) => product.allowedValues
+  .filter((row) => sharedValueIds.has(row.attributeValueId) && row.attributeValue.attribute.supportsImages && row.images.length > 0)
   .map((row) => ({
     attribute: { id: row.attributeValue.attribute.id, name: row.attributeValue.attribute.name, supportsImages: true as const },
     value: { id: row.attributeValue.id, value: row.attributeValue.value, hex: row.attributeValue.hex },
@@ -92,11 +95,13 @@ const safe = (c: LiveCatalogue) => ({
     if (!sellable.length) return [] // nothing selected (or everything since deactivated): never show an empty product
     const prices = sellable.map(({ variant, customPrice }) => effectivePrice(variant.price, c.priceAdjustmentPct, customPrice))
     const p = item.product
+    const sharedValueIds = new Set(sellable.flatMap(({ variant }) => variant.attributeValues.map((a) => a.attributeValueId)))
     return [{
       id: p.id, code: p.code, name: p.name, description: p.description, moq: c.showMOQ ? p.moq : undefined,
       media: p.media.map((m) => ({ url: m.objectKey ? publicUrl(m.objectKey) : m.url, primary: m.primary })),
-      attributes: productAttributes(p),
-      attributeImages: attributeImages(p),
+      category: { id: p.category.id, name: p.category.name },
+      attributes: productAttributes(p, sharedValueIds),
+      attributeImages: attributeImages(p, sharedValueIds),
       priceRange: c.showPrice ? { min: moneyNumber(prices.reduce((lo, x) => (x.lt(lo) ? x : lo))), max: moneyNumber(prices.reduce((hi, x) => (x.gt(hi) ? x : hi))) } : undefined,
       variants: sellable.map(({ variant: v }, index) => ({
         id: v.id, sku: v.sku,

@@ -1,5 +1,5 @@
 import { ArrowLeft, ShoppingBag, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ImageWithFallback } from '@/components/ui/ImageWithFallback'
@@ -25,7 +25,18 @@ export default function CatalogueSelectionPage() {
   const [whatsapp, setWhatsapp] = useState(customer?.whatsapp ?? '')
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [invalidLines, setInvalidLines] = useState<Set<string>>(new Set())
 
+  // A reload on this page renders before the public catalogue has loaded: wait briefly instead of bouncing to "/".
+  const [gaveUpWaiting, setGaveUpWaiting] = useState(false)
+  const stillLoading = data.catalogues.length === 0 && !gaveUpWaiting
+  useEffect(() => {
+    if (!stillLoading) return
+    const timer = setTimeout(() => setGaveUpWaiting(true), 5000)
+    return () => clearTimeout(timer)
+  }, [stillLoading])
+
+  if (!catalogue && stillLoading) return <div className="min-h-screen bg-[#faf8f5]" aria-busy="true" />
   if (!catalogue) return <Navigate to="/" replace />
 
   const rows = selection.items
@@ -41,7 +52,7 @@ export default function CatalogueSelectionPage() {
   const designCount = new Set(rows.map((r) => r.product.id)).size
 
   async function handleSubmit() {
-    if (!contactName.trim() || !phone.trim()) return
+    if (!contactName.trim() || !phone.trim() || invalidLines.size > 0) return
     setSubmitting(true)
     const enquiry: Enquiry = {
       id: `enq-${Date.now()}`,
@@ -91,7 +102,7 @@ export default function CatalogueSelectionPage() {
                     <p className="truncate text-sm font-semibold text-stone-800">{r.product.code} · {r.product.name}</p>
                     <p className="text-xs text-stone-500" data-testid="selection-variant">{variantLabel(r.variant)} <span className="font-mono text-stone-400">{r.variant.sku}</span></p>
                     <div className="mt-2 flex items-center justify-between">
-                      <QuantitySelector value={r.item.quantity} onChange={(q) => selection.updateQuantity(r.variant.id, q)} min={1} />
+                      <QuantitySelector value={r.item.quantity} onChange={(q) => selection.updateQuantity(r.variant.id, q)} onValidityChange={(valid) => setInvalidLines((prev) => { if (prev.has(r.variant.id) !== valid) return prev; const next = new Set(prev); if (valid) next.delete(r.variant.id); else next.add(r.variant.id); return next })} label={`Quantity for ${r.product.name}`} />
                       {catalogue.settings.showWholesalePrice && <p className="text-right text-xs font-semibold text-stone-700">{formatINR(r.variant.price)} · {formatINR(r.variant.price * r.item.quantity)}</p>}
                       <button onClick={() => selection.removeItem(r.variant.id)} className="rounded-full p-1.5 text-stone-400 hover:bg-red-50 hover:text-red-500">
                         <Trash2 size={15} />
@@ -130,11 +141,12 @@ export default function CatalogueSelectionPage() {
 
             <button
               onClick={handleSubmit}
-              disabled={submitting || !contactName.trim() || !phone.trim()}
+              disabled={submitting || !contactName.trim() || !phone.trim() || invalidLines.size > 0}
               className="mt-4 flex h-12 w-full items-center justify-center rounded-2xl bg-stone-900 text-sm font-semibold text-white shadow-md active:scale-[0.98] disabled:opacity-50"
             >
               {submitting ? 'Sending Enquiry...' : 'Send Enquiry'}
             </button>
+            {invalidLines.size > 0 && <p className="mt-2 text-center text-xs font-medium text-red-600">Fix the highlighted quantities (whole numbers from 1 to 1,000,000) to send your enquiry.</p>}
           </>
         )}
       </div>

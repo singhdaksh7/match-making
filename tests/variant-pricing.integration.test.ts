@@ -228,6 +228,16 @@ test('public API exposes only the catalogue-allowed variants with their own pric
   assert.equal('showExactStock' in body.settings || 'showAvailability' in body.settings, false)
 })
 
+test('filters never leak unshared variants: attribute values are limited to shared variants and the category is exposed', async () => {
+  const c = (await json(await newCatalogue({}, pick('Red/L', 'Blue/M')))).data // Red/XL, Red/M, Blue/L are NOT shared
+  const body = await publicOf(c.token); const product = body.products[0]
+  assert.deepEqual(product.category.name, 'Kurtis')
+  assert.deepEqual(product.attributes.find((a: any) => a.name === 'Size').values.map((v: any) => v.value).sort(), ['L', 'M'])
+  assert.deepEqual(product.attributes.find((a: any) => a.name === 'Color').values.map((v: any) => v.value).sort(), ['Blue', 'Red'])
+  assert.equal(JSON.stringify(body).includes('"XL"'), false)
+  assert.deepEqual(product.variants.map((v: any) => v.sku).sort(), ['PRK-Blue-M', 'PRK-Red-L'])
+})
+
 test('showPrice=false hides every price and the range', async () => {
   const body = await publicOf((await json(await newCatalogue({ showPrice: false }))).data.token)
   assert.equal(body.products[0].priceRange, undefined); assert.equal('price' in body.products[0].variants[0], false)

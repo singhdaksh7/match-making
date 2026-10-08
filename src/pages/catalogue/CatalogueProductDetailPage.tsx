@@ -23,7 +23,9 @@ export default function CatalogueProductDetailPage() {
   // What the shopper explicitly picked, and in which order (the gallery follows the latest image-capable pick).
   const [picked, setPicked] = useState<Record<string, string>>({})
   const [pickOrder, setPickOrder] = useState<string[]>([])
-  const [quantity, setQuantity] = useState<number | null>(null)
+  // Each variant keeps its own quantity while the shopper compares variants.
+  const [quantities, setQuantities] = useState<Record<string, number>>({})
+  const [quantityValid, setQuantityValid] = useState(true)
   const [gaveUpWaiting, setGaveUpWaiting] = useState(false)
 
   const catalogue = data.catalogues.find((c) => c.slug === slug)
@@ -89,11 +91,16 @@ export default function CatalogueProductDetailPage() {
   if ((!catalogue || !product) && stillLoading) return <div className="min-h-screen bg-white" aria-busy="true" />
   if (!catalogue || !product) return <Navigate to={`/catalogue/${slug}`} replace />
 
-  const qty = quantity ?? Math.max(12, product.moq)
+  // A quantity typed before a variant is chosen carries over to the first variant picked.
+  const qty = quantities[exact?.id ?? ''] ?? quantities[''] ?? Math.max(12, product.moq)
 
   function handleAdd() {
     if (!exact) {
       showToast(`Please select ${missing.length ? missing.join(', ').toLowerCase() : 'an available variant'}`, 'error')
+      return
+    }
+    if (!quantityValid) {
+      showToast('Enter a valid quantity (a whole number from 1 to 1,000,000)', 'error')
       return
     }
     selection.addItem({ productId: product!.id, variantId: exact.id, quantity: qty })
@@ -173,8 +180,9 @@ export default function CatalogueProductDetailPage() {
           </div>
 
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">Quantity</p>
-            <QuantitySelector value={qty} onChange={setQuantity} min={product.moq} step={1} />
+                        <p className="mb-2 text-sm font-medium text-stone-700">How many pieces do you want?</p>
+            <QuantitySelector key={exact?.id ?? 'none'} value={qty} onChange={(q) => setQuantities((prev) => ({ ...prev, [exact?.id ?? '']: q }))} onValidityChange={setQuantityValid} />
+            {showPrice && exact && quantityValid && <p data-testid="estimated-total" className="mt-2 text-sm text-stone-600">Estimated total: <span className="font-bold text-stone-900">{formatINR(exact.price * qty)}</span></p>}
           </div>
 
           {!exact && <p data-testid="select-hint" className="text-sm font-medium text-stone-500">{missing.length ? `Select ${missing.join(', ').toLowerCase()} to choose a variant` : 'Choose one of the available variants'}</p>}
